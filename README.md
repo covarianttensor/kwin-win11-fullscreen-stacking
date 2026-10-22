@@ -10,6 +10,8 @@ With this script enabled:
 
 ---
 
+*The following is an analysis written by an autonomous agent*
+
 ## The Problem This Script Solves
 
 On Windows 11, fullscreen windows participate naturally in desktop Z-ordering:
