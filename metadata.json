@@ -1,0 +1,17 @@
+{
+    "KPackageStructure": "KWin/Script",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Name": "covarianttensor"
+            }
+        ],
+        "Description": "Makes fullscreen windows behave like Windows 11: fullscreen apps cover the taskbar, while normal windows focused or dragged over a fullscreen app render on top of it.",
+        "Icon": "preferences-system-windows",
+        "Id": "win11-fullscreen-stacking",
+        "License": "GPL-2.0-or-later",
+        "Name": "Windows 11 Fullscreen Stacking",
+        "Version": "1.0.0"
+    },
+    "X-Plasma-API": "javascript"
+}
