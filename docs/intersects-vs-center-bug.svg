@@ -1,0 +1,156 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 310" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bg2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#090d16"/>
+    </linearGradient>
+    <clipPath id="monAClip">
+      <rect x="260" y="72" width="230" height="210"/>
+    </clipPath>
+  </defs>
+
+  <style>
+    .font-ui { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    .font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+
+    /* Window width = 160px. Starts at x=60 (Center=140, Right=220). Seam is at x=260.
+       Phase 1 (0%-15%): On Monitor B (x=60, Right=220 < 260, Center=140 < 260)
+       Phase 2 (25%-65%): THE BUG ZONE! Slides +96px -> x=156, Right=316 (>260, 35% overlap!), Center=236 (<260, still on Monitor B!)
+       Phase 3 (72%-92%): Slides +145px -> x=205, Right=365 (>260), Center=285 (>260, Center crossed!)
+    */
+    @keyframes slideBugWindow {
+      0%, 14% { transform: translateX(0px); }
+      24%, 64% { transform: translateX(96px); }
+      74%, 92% { transform: translateX(145px); }
+      100% { transform: translateX(0px); }
+    }
+    @keyframes showBugZone {
+      0%, 22% { opacity: 0; }
+      26%, 64% { opacity: 1; }
+      68%, 100% { opacity: 0; }
+    }
+    @keyframes showPast50 {
+      0%, 71% { opacity: 0; }
+      75%, 92% { opacity: 1; }
+      96%, 100% { opacity: 0; }
+    }
+
+    .anim-win2 { animation: slideBugWindow 7.5s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+    .anim-bug-zone { animation: showBugZone 7.5s linear infinite; }
+    .anim-past-50 { animation: showPast50 7.5s linear infinite; }
+  </style>
+
+  <rect x="0" y="0" width="900" height="310" rx="12" fill="url(#bg2)" stroke="#1e293b" stroke-width="2"/>
+
+  <text x="24" y="32" class="font-ui" fill="#f8fafc" font-size="15" font-weight="700">
+    Anatomy of the &lt;50% Overlap Cache Bug: intersects() vs. geo.center() in src/window.cpp
+  </text>
+  <text x="24" y="50" class="font-ui" fill="#94a3b8" font-size="12">
+    When 1%–49% of an active window straddles the monitor border, KWin's layer rule and cache-invalidation check disagree:
+  </text>
+
+  <!-- LEFT DIAGRAM: Zoomed Dual-Monitor Boundary (x=30..490, Seam at x=260) -->
+  <g>
+    <!-- Monitor B (Left: x=30..260) -->
+    <rect x="30" y="72" width="230" height="210" rx="8" fill="#1e293b" stroke="#334155" stroke-width="1.5"/>
+    <text x="44" y="94" class="font-ui" fill="#cbd5e1" font-size="11" font-weight="700">Monitor B (Initial Output)</text>
+
+    <!-- Monitor A (Right: x=260..490) -->
+    <rect x="260" y="72" width="230" height="210" rx="8" fill="#2e1065" stroke="#7e22ce" stroke-width="1.5"/>
+    <text x="274" y="94" class="font-ui" fill="#e9d5ff" font-size="11" font-weight="700">Monitor A (Fullscreen Output)</text>
+
+    <!-- Draggable Window (width=160, height=96, starts at x=60, y=126) -->
+    <g class="anim-win2">
+      <!-- Outer Bounding Box (frameGeometry) -->
+      <rect x="60" y="126" width="160" height="96" rx="6" fill="#0f172a" fill-opacity="0.9" stroke="#38bdf8" stroke-width="2"/>
+      <rect x="60" y="126" width="160" height="22" rx="5" fill="#1e293b"/>
+      <text x="70" y="141" class="font-mono" fill="#7dd3fc" font-size="10" font-weight="700">frameGeometry()</text>
+
+      <!-- Center Crosshair (geo.center() at x = 60 + 80 = 140) -->
+      <line x1="140" y1="148" x2="140" y2="222" stroke="#f43f5e" stroke-width="1" stroke-dasharray="2 2"/>
+      <circle cx="140" cy="180" r="6" fill="#f43f5e" stroke="#ffffff" stroke-width="2"/>
+      <rect x="98" y="192" width="84" height="18" rx="4" fill="#be123c"/>
+      <text x="140" y="204" text-anchor="middle" class="font-mono" fill="#ffffff" font-size="9.5" font-weight="700">geo.center()</text>
+    </g>
+
+    <!-- Highlighted Overlap Region on Monitor A (Clipped to x >= 260) -->
+    <g clip-path="url(#monAClip)">
+      <g class="anim-win2">
+        <rect x="60" y="126" width="160" height="96" rx="6" fill="#10b981" fill-opacity="0.28" stroke="#34d399" stroke-width="2.5"/>
+      </g>
+    </g>
+
+    <!-- Monitor Border Line at x=260 -->
+    <line x1="260" y1="66" x2="260" y2="288" stroke="#facc15" stroke-width="2.5" stroke-dasharray="5 4"/>
+    <rect x="206" y="256" width="108" height="20" rx="4" fill="#111827" stroke="#facc15" stroke-width="1"/>
+    <text x="260" y="270" text-anchor="middle" class="font-ui" fill="#fde047" font-size="10" font-weight="700">Screen Boundary</text>
+  </g>
+
+  <!-- RIGHT SIDE: Live C++ Expression Evaluator -->
+  <g>
+    <!-- Box 1: Window::isOnOutput() -->
+    <rect x="514" y="72" width="362" height="62" rx="8" fill="#111827" stroke="#334155" stroke-width="1.5"/>
+    <text x="528" y="92" class="font-mono" fill="#e2e8f0" font-size="11" font-weight="700">
+      1. Window::isActiveFullScreen() (line 2387)
+    </text>
+    <text x="528" y="110" class="font-mono" fill="#94a3b8" font-size="10">
+      Checks: <tspan fill="#34d399">output-&gt;geometry().intersects(rect)</tspan>
+    </text>
+    <g class="anim-bug-zone">
+      <text x="528" y="126" class="font-ui" fill="#34d399" font-size="11" font-weight="700">
+        &#8594; TRUE at 35%! belongsToLayer() returns NormalLayer (2)
+      </text>
+    </g>
+    <g class="anim-past-50">
+      <text x="528" y="126" class="font-ui" fill="#34d399" font-size="11" font-weight="700">
+        &#8594; TRUE at 65%! belongsToLayer() returns NormalLayer (2)
+      </text>
+    </g>
+
+    <!-- Box 2: Window::finishInteractiveMoveResize() -->
+    <rect x="514" y="144" width="362" height="62" rx="8" fill="#111827" stroke="#334155" stroke-width="1.5"/>
+    <text x="528" y="164" class="font-mono" fill="#e2e8f0" font-size="11" font-weight="700">
+      2. finishInteractiveMoveResize() (line 1086)
+    </text>
+    <text x="528" y="182" class="font-mono" fill="#94a3b8" font-size="10">
+      Checks: <tspan fill="#fb7185">outputAt(geo.center()) != initialOutput</tspan>
+    </text>
+    <g class="anim-bug-zone">
+      <text x="528" y="198" class="font-ui" fill="#f87171" font-size="11" font-weight="700">
+        &#8594; FALSE at 35%! (Red dot still on Mon B &#8594; skips updateLayer!)
+      </text>
+    </g>
+    <g class="anim-past-50">
+      <text x="528" y="198" class="font-ui" fill="#34d399" font-size="11" font-weight="700">
+        &#8594; TRUE at 65%! (Red dot crossed &#8594; calls sendToOutput!)
+      </text>
+    </g>
+
+    <!-- Box 3: Resulting Cache State -->
+    <rect x="514" y="216" width="362" height="66" rx="8" fill="#111827" stroke="#334155" stroke-width="1.5"/>
+    <g class="anim-bug-zone">
+      <rect x="514" y="216" width="362" height="66" rx="8" fill="#450a0a" stroke="#ef4444" stroke-width="2"/>
+      <text x="528" y="238" class="font-ui" fill="#fca5a5" font-size="12" font-weight="700">
+        &#9888;&#65039; 1%–49% OVERLAP = STALE CACHE BUG!
+      </text>
+      <text x="528" y="256" class="font-mono" fill="#fecaca" font-size="10.5">
+        belongsToLayer() == Layer 2, but m_layer == Layer 5!
+      </text>
+      <text x="528" y="272" class="font-ui" fill="#fde047" font-size="10.5" font-weight="600">
+        Active window remains buried underneath unfocused game.
+      </text>
+    </g>
+    <g class="anim-past-50">
+      <rect x="514" y="216" width="362" height="66" rx="8" fill="#064e3b" stroke="#10b981" stroke-width="1.5"/>
+      <text x="528" y="238" class="font-ui" fill="#6ee7b7" font-size="12" font-weight="700">
+        &#9989; &gt;50% OVERLAP = CACHE FINALLY REFRESHED
+      </text>
+      <text x="528" y="256" class="font-mono" fill="#a7f3d0" font-size="10.5">
+        sendToOutput() calls other-&gt;updateLayer()
+      </text>
+      <text x="528" y="272" class="font-ui" fill="#e2e8f0" font-size="10.5">
+        m_layer invalidated to UnknownLayer (-1) &#8594; recomputed.
+      </text>
+    </g>
+  </g>
+</svg>

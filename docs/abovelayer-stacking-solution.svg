@@ -1,0 +1,144 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 320" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bg3" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#090d16"/>
+    </linearGradient>
+    <linearGradient id="fsGrad3" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#4338ca"/>
+      <stop offset="100%" stop-color="#6b21a8"/>
+    </linearGradient>
+  </defs>
+
+  <style>
+    .font-ui { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    .font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+
+    /*
+      Phase 1 (0% - 35%): Focused Fullscreen
+        - Fullscreen App is in ActiveLayer (5) at y=74
+        - Active/Normal Window is in NormalLayer (2) at y=252
+      Phase 2 (45% - 88%): Normal Window Overlaps Fullscreen Monitor (Script Active!)
+        - Fullscreen App moves down into Middle of AboveLayer (3) at y=164 (+90px)
+        - Normal Window moves up into Top of AboveLayer (3) at y=128 (-124px)
+        - Plasma Taskbar stays at Bottom of AboveLayer (3) at y=200
+    */
+    @keyframes moveFsToAbove {
+      0%, 34% { transform: translateY(0px); }
+      44%, 86% { transform: translateY(90px); }
+      96%, 100% { transform: translateY(0px); }
+    }
+    @keyframes moveWinToAbove {
+      0%, 34% { transform: translateY(0px); }
+      44%, 86% { transform: translateY(-124px); }
+      96%, 100% { transform: translateY(0px); }
+    }
+    @keyframes showOverlayActive {
+      0%, 38% { opacity: 0.15; }
+      44%, 86% { opacity: 1; }
+      92%, 100% { opacity: 0.15; }
+    }
+    @keyframes showFocusedState {
+      0%, 34% { opacity: 1; }
+      40%, 88% { opacity: 0.15; }
+      96%, 100% { opacity: 1; }
+    }
+
+    .anim-fs { animation: moveFsToAbove 6.5s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+    .anim-win3 { animation: moveWinToAbove 6.5s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+    .anim-overlay-card { animation: showOverlayActive 6.5s linear infinite; }
+    .anim-focused-card { animation: showFocusedState 6.5s linear infinite; }
+  </style>
+
+  <rect x="0" y="0" width="900" height="320" rx="12" fill="url(#bg3)" stroke="#1e293b" stroke-width="2"/>
+
+  <text x="24" y="32" class="font-ui" fill="#f8fafc" font-size="15" font-weight="700">
+    How the KWin Script Solves It: Converging into Shared AboveLayer (3) + raiseWindow()
+  </text>
+  <text x="24" y="50" class="font-ui" fill="#94a3b8" font-size="12">
+    When an active window overlaps the fullscreen monitor, both are placed into AboveLayer (3) and stacked above the Taskbar:
+  </text>
+
+  <!-- LEFT DIAGRAM: The 3 Layers & Animated Surface Cards -->
+  <g>
+    <!-- ActiveLayer (5) Slot -->
+    <rect x="24" y="66" width="500" height="46" rx="8" fill="#1e293b" fill-opacity="0.4" stroke="#475569" stroke-width="1" stroke-dasharray="4 3"/>
+    <text x="36" y="87" class="font-mono" fill="#fcd34d" font-size="11.5" font-weight="700">Layer 5: ActiveLayer</text>
+    <text x="36" y="102" class="font-ui" fill="#94a3b8" font-size="10">isActiveFullScreen() == true</text>
+
+    <!-- AboveLayer (3) Slot (Expanded to hold all 3 ordered surfaces!) -->
+    <rect x="24" y="120" width="500" height="118" rx="8" fill="#064e3b" fill-opacity="0.25" stroke="#10b981" stroke-width="1.5"/>
+    <text x="36" y="142" class="font-mono" fill="#34d399" font-size="11.5" font-weight="700">Layer 3: AboveLayer</text>
+    <text x="36" y="158" class="font-ui" fill="#a7f3d0" font-size="10">Shared by Taskbar + keepAbove</text>
+    <text x="36" y="178" class="font-mono" fill="#6ee7b7" font-size="9.5">Top: Active Window</text>
+    <text x="36" y="196" class="font-mono" fill="#6ee7b7" font-size="9.5">Mid: Fullscreen App</text>
+    <text x="36" y="214" class="font-mono" fill="#6ee7b7" font-size="9.5">Bot: Plasma Taskbar</text>
+
+    <!-- Fixed Plasma Taskbar at Bottom of AboveLayer (3) (y=200) -->
+    <rect x="215" y="200" width="295" height="30" rx="6" fill="#0f172a" stroke="#38bdf8" stroke-width="1.5"/>
+    <text x="362" y="219" text-anchor="middle" class="font-ui" fill="#7dd3fc" font-size="11" font-weight="700">
+      1. Plasma Taskbar (LayerShell TopLayer = Layer 3)
+    </text>
+
+    <!-- NormalLayer (2) Slot -->
+    <rect x="24" y="246" width="500" height="48" rx="8" fill="#1e293b" fill-opacity="0.4" stroke="#475569" stroke-width="1" stroke-dasharray="4 3"/>
+    <text x="36" y="267" class="font-mono" fill="#cbd5e1" font-size="11.5" font-weight="700">Layer 2: NormalLayer</text>
+    <text x="36" y="282" class="font-ui" fill="#94a3b8" font-size="10">keepAbove == false</text>
+
+    <!-- ANIMATED FULLSCREEN APP: Moves from Layer 5 (y=74) to Middle of Layer 3 (y=164 -> +90px) -->
+    <g class="anim-fs">
+      <rect x="215" y="74" width="295" height="30" rx="6" fill="url(#fsGrad3)" stroke="#c084fc" stroke-width="2"/>
+      <text x="362" y="93" text-anchor="middle" class="font-ui" fill="#ffffff" font-size="11" font-weight="700">
+        2. Fullscreen App (fs.keepAbove = true &#8594; raiseWindow)
+      </text>
+    </g>
+
+    <!-- ANIMATED ACTIVE WINDOW: Moves from Layer 2 (y=252) to Top of Layer 3 (y=128 -> -124px) -->
+    <g class="anim-win3">
+      <rect x="215" y="252" width="295" height="30" rx="6" fill="#065f46" stroke="#34d399" stroke-width="2"/>
+      <text x="362" y="271" text-anchor="middle" class="font-ui" fill="#ffffff" font-size="11" font-weight="700">
+        3. Active / Dragged Window (keepAbove = true &#8594; raiseWindow)
+      </text>
+    </g>
+  </g>
+
+  <!-- RIGHT SIDE: Script State Machine Explanation -->
+  <g>
+    <!-- State A: Fullscreen Focused -->
+    <g class="anim-focused-card">
+      <rect x="544" y="66" width="332" height="104" rx="8" fill="#1e1b4b" stroke="#f59e0b" stroke-width="1.5"/>
+      <text x="560" y="88" class="font-ui" fill="#fcd34d" font-size="12.5" font-weight="700">
+        State A: Fullscreen App Focused
+      </text>
+      <text x="560" y="108" class="font-mono" fill="#e2e8f0" font-size="10.5">
+        fs.keepAbove = false; win.keepAbove = false;
+      </text>
+      <text x="560" y="128" class="font-ui" fill="#cbd5e1" font-size="11">
+        &#8226; Fullscreen sits in <tspan class="font-mono" fill="#fcd34d">ActiveLayer (5)</tspan>
+      </text>
+      <text x="560" y="146" class="font-ui" fill="#cbd5e1" font-size="11">
+        &#8226; Normal windows sit in <tspan class="font-mono" fill="#94a3b8">NormalLayer (2)</tspan>
+      </text>
+    </g>
+
+    <!-- State B: Normal Window Overlapping Fullscreen Monitor -->
+    <g class="anim-overlay-card">
+      <rect x="544" y="182" width="332" height="112" rx="8" fill="#064e3b" stroke="#10b981" stroke-width="2"/>
+      <text x="560" y="204" class="font-ui" fill="#6ee7b7" font-size="12.5" font-weight="700">
+        State B: Normal Window Overlaps Monitor
+      </text>
+      <text x="560" y="222" class="font-mono" fill="#a7f3d0" font-size="10">
+        1. fs.keepAbove = true  &#8594; triggers updateLayer()
+      </text>
+      <text x="560" y="238" class="font-mono" fill="#a7f3d0" font-size="10">
+        2. active.keepAbove = true
+      </text>
+      <text x="560" y="254" class="font-mono" fill="#a7f3d0" font-size="10">
+        3. raiseWindow(fs) &#8594; raiseWindow(active)
+      </text>
+      <text x="560" y="276" class="font-ui" fill="#ffffff" font-size="11" font-weight="700">
+        Result: Taskbar (3) &lt; Fullscreen (3) &lt; Window (3)
+      </text>
+    </g>
+  </g>
+</svg>

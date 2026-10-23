@@ -99,7 +99,9 @@ Because EWMH dictates that active fullscreen windows live in a layer above `_NET
 1. **`ActiveLayer` (`Layer 5`):** Covers the taskbar, **and** covers every normal/Keep-Above window on that screen.
 2. **`NormalLayer` (`Layer 2`):** Allows normal windows on top of it, **but** drops below the taskbar (`Layer 3`), causing the Plasma Panel to pop up over the fullscreen app.
 
-There is no native third state in KWin's state machine where a fullscreen window sits **above the taskbar** while a normal window sits **above the fullscreen window**.
+There is no native third state in KWin's state machine where a fullscreen window sits **above the taskbar** while a normal window sits **above the fullscreen window**:
+
+![The EWMH Two-State Dilemma](docs/ewmh-two-state-trap.svg)
 
 ---
 
@@ -283,7 +285,9 @@ Even after accounting for EWMH and waiting for mouse-release, there is still a g
   setMoveResizeOutput(workspace()->outputAt(geo.center()));
   ```
   This only switches to Monitor A when **more than 50% of the window** (its center point) crosses onto the fullscreen monitor.
-- **The resulting bug:** If you drag an active window from Monitor B so that **40% of it sits on Monitor A** over a fullscreen app and **release the mouse button**, the drag is completely finished and `belongsToLayer()` on the fullscreen window now returns `NormalLayer` (`2`) (because `intersects()` is `true`), **but `updateLayer()` is never called** because the window's `center()` is still on Monitor B. As a result, the fullscreen window's cached `m_layer` remains permanently stuck at `ActiveLayer` (`5`)—contradicting KWin's own `belongsToLayer()` return value and burying the active window you just placed there.
+- **The resulting bug:** If you drag an active window from Monitor B so that **40% of it sits on Monitor A** over a fullscreen app and **release the mouse button**, the drag is completely finished and `belongsToLayer()` on the fullscreen window now returns `NormalLayer` (`2`) (because `intersects()` is `true`), **but `updateLayer()` is never called** because the window's `center()` is still on Monitor B. As a result, the fullscreen window's cached `m_layer` remains permanently stuck at `ActiveLayer` (`5`)—contradicting KWin's own `belongsToLayer()` return value and burying the active window you just placed there:
+
+![Anatomy of the <50% Overlap Cache Bug](docs/intersects-vs-center-bug.svg)
 
 ---
 
@@ -370,6 +374,8 @@ By combining all five findings, [`contents/code/main.js`](contents/code/main.js)
    - When the user clicks back on the fullscreen window (`fs.active === true`), or drags the normal window off the fullscreen monitor, the script clears the managed `keepAbove` flags (`_win11FsKeepAbove`).
    - Normal windows return to `NormalLayer` (`2`) behind the fullscreen window, and the focused fullscreen window returns to `ActiveLayer` (`5`).
    - Any window where the user *manually* enabled "Keep Above" outside the script is untouched, because the script tracks its own promotions via the `_win11FsKeepAbove` property.
+
+![How the KWin Script Solves It in AboveLayer (3)](docs/abovelayer-stacking-solution.svg)
 
 ---
 
