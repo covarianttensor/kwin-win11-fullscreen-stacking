@@ -203,9 +203,9 @@ This means that **as soon as any part of the window you are dragging (`ac`) over
 
 ---
 
-### Finding #3: Why Cross-Monitor Dragging Hides the Window in Default KWin (`m_layer` Caching & Deferred `sendToOutput()`)
+### Finding #3: Intentional EWMH Trade-Offs vs. The `< 50%` Overlap Cache Bug (`m_layer` & `sendToOutput()`)
 
-If `isActiveFullScreen()` evaluates to `false` as soon as a dragged window overlaps the fullscreen monitor, **why does default KWin keep the fullscreen window on top while you are dragging (and sometimes even after you drop the window)?**
+If `isActiveFullScreen()` evaluates to `false` as soon as a dragged window overlaps the fullscreen monitor, **why does default KWin keep the fullscreen window on top while you are dragging—and sometimes even after you release the mouse button?**
 
 Looking at [`Window::layer() const`](https://invent.kde.org/plasma/kwin/-/blob/Plasma/6.8/src/window.cpp#L524-530) and [`Window::updateLayer()`](https://invent.kde.org/plasma/kwin/-/blob/Plasma/6.8/src/window.cpp#L532-542):
 
@@ -234,45 +234,50 @@ void Window::updateLayer()
 
 `Window::layer()` caches the computed layer in `m_layer` and only re-evaluates `belongsToLayer()` when `Window::updateLayer()` is called.
 
-When you click a window on Monitor B and drag it onto Monitor A (where a fullscreen app is running):
+When we evaluate KWin's cross-monitor behavior in the context of EWMH compliance, it breaks down into **three distinct parts**:
 
-1. **Clicking the window on Monitor B:** [`Workspace::setActiveWindow(Window *window)`](https://invent.kde.org/plasma/kwin/-/blob/Plasma/6.8/src/activation.cpp#L258-271) in `src/activation.cpp` runs:
+#### A. 100% Intentional (EWMH Compliance): Taskbar Popping Up When Another Window is Focused on the Same Screen
+Under EWMH ([Section 7.11](https://specifications.freedesktop.org/wm-spec/latest/ar01s07.html#STACKINGORDER)), there is no middle layer between normal windows and the taskbar:
+- Either a fullscreen app is in `ActiveLayer` (`5`) and covers **everything** (both the taskbar and normal windows),
+- Or it is demoted to `NormalLayer` (`2`), where normal windows can sit above it, **but the Plasma Taskbar (`AboveLayer`, `3`) also pops up on top of it**.
+
+So the fact that vanilla KWin does not natively behave like Windows 11 (keeping the taskbar hidden beneath the fullscreen app while a normal window sits on top) is **not a bug**—it is strict adherence to the 20+ year-old EWMH specification.
+
+#### B. Design Trade-Off (Arguably Intentional): Dragged Window Hiding Behind the Fullscreen App *While Holding the Mouse Button*
+When you click a window on Monitor B and drag it onto Monitor A (where a fullscreen app is running):
+1. At the moment you click the window on Monitor B, [`Workspace::setActiveWindow()`](https://invent.kde.org/plasma/kwin/-/blob/Plasma/6.8/src/activation.cpp#L258-271) checks if any fullscreen window is on `m_activeWindow->output()` (Monitor B). Because the fullscreen window is on Monitor A (`Monitor A != Monitor B`), it intentionally stays in `ActiveLayer` (`5`).
+2. While you hold the mouse button and drag the window across Monitor A, KWin does **not** call `updateLayer()` on Monitor A's fullscreen window on every mouse step. Instead, it waits until you release the mouse button in [`Window::finishInteractiveMoveResize()`](https://invent.kde.org/plasma/kwin/-/blob/Plasma/6.8/src/window.cpp#L1086-1088) to call [`Window::sendToOutput(moveResizeOutput())`](https://invent.kde.org/plasma/kwin/-/blob/Plasma/6.8/src/window.cpp#L3971-3983):
    ```cpp
-   // src/activation.cpp — Workspace::setActiveWindow()
-   // activating a client can cause a non active fullscreen window to loose the ActiveLayer status on > 1 screens
-   if (outputs().count() > 1) {
-       for (auto it = m_windows.begin(); it != m_windows.end(); ++it) {
-           if (*it != m_activeWindow && (*it)->layer() == ActiveLayer && (*it)->output() == m_activeWindow->output()) {
-               (*it)->updateLayer();
+   // src/window.cpp — Window::sendToOutput()
+   if (isActive()) {
+       workspace()->setActiveOutput(newOutput);
+       // might impact the layer of a fullscreen window
+       const auto windows = workspace()->windows();
+       for (Window *other : windows) {
+           if (other->isFullScreen() && other->output() == newOutput) {
+               other->updateLayer();
            }
        }
    }
    ```
-   When you click the window on Monitor B, `m_activeWindow->output()` is **Monitor B**, while the fullscreen window's `(*it)->output()` is **Monitor A**. Because `Monitor A != Monitor B`, the fullscreen window on Monitor A intentionally stays in `ActiveLayer` (`5`).
+3. **Why waiting until mouse-release is a sensible trade-off under EWMH:** Because EWMH forces an unfocused fullscreen window below the taskbar (`NormalLayer`), calling `updateLayer()` mid-drag in vanilla KWin would cause the taskbar on intermediate monitors to flash/pop up whenever you drag a window across a middle monitor (e.g., dragging from Monitor 1 to Monitor 3 across a fullscreen video on Monitor 2). Waiting until mouse-release avoids that taskbar flicker—at the cost of hiding the window behind the fullscreen app while you are dragging it.
+4. **Why our script can update live mid-drag without flicker:** Because our script transitions the unfocused fullscreen window into `AboveLayer` (`3`) *above* the Plasma Panel rather than `NormalLayer` (`2`), the taskbar never pops up—allowing the dragged window to stay smoothly visible on top of the fullscreen app throughout the drag.
 
-2. **While dragging from Monitor B onto Monitor A (Intentional Deferral in Default KWin):**
-   - During an interactive drag, KWin does **not** call `updateLayer()` on Monitor A's fullscreen window on every mouse step; instead, it waits until you release the mouse button in [`Window::finishInteractiveMoveResize()`](https://invent.kde.org/plasma/kwin/-/blob/Plasma/6.8/src/window.cpp#L1086-1088) to call [`Window::sendToOutput(moveResizeOutput())`](https://invent.kde.org/plasma/kwin/-/blob/Plasma/6.8/src/window.cpp#L3971-3983):
-     ```cpp
-     // src/window.cpp — Window::sendToOutput()
-     if (isActive()) {
-         workspace()->setActiveOutput(newOutput);
-         // might impact the layer of a fullscreen window
-         const auto windows = workspace()->windows();
-         for (Window *other : windows) {
-             if (other->isFullScreen() && other->output() == newOutput) {
-                 other->updateLayer();
-             }
-         }
-     }
-     ```
-   - **Why default KWin defers this until mouse-release:** In vanilla KWin, demoting an unfocused fullscreen window drops it from `ActiveLayer` (`5`) to `NormalLayer` (`2`), which causes the Plasma Panel (`AboveLayer`, `3`) to pop up over the fullscreen window. On a 3-monitor setup (`Left` → `Middle (Fullscreen)` → `Right`), if vanilla KWin updated fullscreen layers mid-drag, dragging a window from `Left` to `Right` across the `Middle` monitor would cause the `Middle` monitor's taskbar to flash/pop up mid-drag. Deferring until mouse release avoids that taskbar flicker—at the trade-off that you cannot see the window you are dragging over the fullscreen monitor until you let go of the mouse button.
-   - **Why our script can update live mid-drag without flicker:** Because our script transitions the unfocused fullscreen window into `AboveLayer` (`3`) *above* the Plasma Panel rather than `NormalLayer` (`2`), the taskbar never pops up—allowing the dragged window to stay smoothly visible on top of the fullscreen app throughout the drag.
-
-3. **Partial-Overlap Edge Case (`intersects()` vs. `center()`):**
-   - Notice a subtle mismatch between how `isActiveFullScreen()` and `setMoveResizeGeometry()` determine which monitor a window is on:
-     - [`Window::isOnOutput()`](https://invent.kde.org/plasma/kwin/-/blob/Plasma/6.8/src/window.cpp#L238-241) uses `output->geometry().intersects(frameGeometry().toRect())` (true if **any part** of the window overlaps Monitor A).
-     - [`Window::setMoveResizeGeometry()`](https://invent.kde.org/plasma/kwin/-/blob/Plasma/6.8/src/window.cpp#L3450-3454) sets `moveResizeOutput` to `workspace()->outputAt(geo.center())` (which only switches to Monitor A once the window's **center point** crosses the screen boundary).
-   - If you drag a window across the monitor boundary so that less than 50% of it overlaps the fullscreen app on Monitor A (leaving its center point on Monitor B) and release the mouse button, `moveResizeOutput()` remains Monitor B, so `finishInteractiveMoveResize()` never calls `sendToOutput(Monitor A)` and `other->updateLayer()` is never triggered—even though `isActiveFullScreen()` is now `false`.
+#### C. Genuine Bug (Even Under EWMH): Releasing the Mouse When `< 50%` of the Window Overlaps the Fullscreen Monitor
+Even after accounting for EWMH and waiting for mouse-release, there is still a genuine cache-invalidation bug in KWin when a window straddles two monitors:
+- **How KWin decides if a fullscreen window belongs in `ActiveLayer` (`Window::isActiveFullScreen()`):**
+  It calls `ac->isOnOutput(output())` ([`src/window.cpp#L238-241`](https://invent.kde.org/plasma/kwin/-/blob/Plasma/6.8/src/window.cpp#L238-241)), which checks:
+  ```cpp
+  output->geometry().intersects(frameGeometry().toRect())
+  ```
+  This returns `true` if **even 1% of the active window** overlaps the fullscreen monitor. By KWin's own EWMH logic, `belongsToLayer()` evaluates to `NormalLayer` (`2`) whenever *any* part of the active window overlaps that monitor.
+- **How KWin decides whether to invalidate `m_layer` on mouse-release (`Window::finishInteractiveMoveResize()`):**
+  It checks whether `moveResizeOutput()` changed ([`src/window.cpp#L1086`](https://invent.kde.org/plasma/kwin/-/blob/Plasma/6.8/src/window.cpp#L1086)), which is set in [`Window::setMoveResizeGeometry()`](https://invent.kde.org/plasma/kwin/-/blob/Plasma/6.8/src/window.cpp#L3450-3454) via:
+  ```cpp
+  setMoveResizeOutput(workspace()->outputAt(geo.center()));
+  ```
+  This only switches to Monitor A when **more than 50% of the window** (its center point) crosses onto the fullscreen monitor.
+- **The resulting bug:** If you drag an active window from Monitor B so that **40% of it sits on Monitor A** over a fullscreen app and **release the mouse button**, the drag is completely finished and `belongsToLayer()` on the fullscreen window now returns `NormalLayer` (`2`) (because `intersects()` is `true`), **but `updateLayer()` is never called** because the window's `center()` is still on Monitor B. As a result, the fullscreen window's cached `m_layer` remains permanently stuck at `ActiveLayer` (`5`)—contradicting KWin's own `belongsToLayer()` return value and burying the active window you just placed there.
 
 ---
 
