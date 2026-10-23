@@ -1,0 +1,269 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 390" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#090d16"/>
+    </linearGradient>
+    <linearGradient id="monBGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="gameGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#312e81"/>
+      <stop offset="50%" stop-color="#581c87"/>
+      <stop offset="100%" stop-color="#3b0764"/>
+    </linearGradient>
+    <clipPath id="panel1MonA">
+      <rect x="160" y="78" width="136" height="170" rx="0"/>
+    </clipPath>
+    <clipPath id="panel1All">
+      <rect x="24" y="78" width="272" height="170" rx="8"/>
+    </clipPath>
+    <clipPath id="panel2All">
+      <rect x="344" y="78" width="272" height="170" rx="8"/>
+    </clipPath>
+    <clipPath id="panel3All">
+      <rect x="664" y="78" width="272" height="170" rx="8"/>
+    </clipPath>
+  </defs>
+
+  <style>
+    .font-ui { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    .font-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+
+    /* 6-second loop:
+       0% - 18%: Chrome on Monitor B (x=0)
+       18% - 45%: Dragging across border to 35% overlap on Monitor A (dx = +62px, center dot still left of seam!)
+       45% - 88%: Mouse released at 35% overlap (Hold so viewer sees the result clearly)
+       88% - 100%: Return to start
+    */
+    @keyframes slideWindow {
+      0%, 16% { transform: translateX(0px); }
+      42%, 86% { transform: translateX(62px); }
+      96%, 100% { transform: translateX(0px); }
+    }
+    @keyframes showOnDrop {
+      0%, 41% { opacity: 0; }
+      44%, 86% { opacity: 1; }
+      90%, 100% { opacity: 0; }
+    }
+    @keyframes showDuringDrag {
+      0%, 18% { opacity: 0; }
+      22%, 41% { opacity: 1; }
+      44%, 100% { opacity: 0; }
+    }
+    @keyframes pulseDot {
+      0%, 100% { r: 4.5px; opacity: 1; }
+      50% { r: 6.5px; opacity: 0.75; }
+    }
+
+    .anim-win { animation: slideWindow 6.5s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+    .anim-drop { animation: showOnDrop 6.5s linear infinite; }
+    .anim-drag { animation: showDuringDrag 6.5s linear infinite; }
+    .anim-dot { animation: pulseDot 1.4s ease-in-out infinite; }
+  </style>
+
+  <!-- Outer Card Background -->
+  <rect x="0" y="0" width="960" height="390" rx="14" fill="url(#bgGrad)" stroke="#1e293b" stroke-width="2"/>
+
+  <!-- Top Header -->
+  <text x="24" y="32" class="font-ui" fill="#f8fafc" font-size="16" font-weight="700">
+    Dragging &amp; Dropping an Active Window 35% Onto a Fullscreen Monitor (&lt;50% Overlap Comparison)
+  </text>
+  <text x="24" y="52" class="font-ui" fill="#94a3b8" font-size="12">
+    Watch the Red Center Dot (geo.center()): at 35% overlap, intersects() is TRUE on Monitor A, but geo.center() is still on Monitor B.
+  </text>
+
+  <!-- ========================================================================================= -->
+  <!-- PANEL 1: ACTUAL KWIN 6.8 (WITH <50% OVERLAP CACHE BUG) -->
+  <!-- ========================================================================================= -->
+  <g>
+    <rect x="16" y="64" width="288" height="272" rx="10" fill="#111827" stroke="#ef4444" stroke-width="1.5" stroke-opacity="0.6"/>
+    <text x="28" y="88" class="font-ui" fill="#f87171" font-size="13" font-weight="700">1. Actual KWin 6.8 (&lt;50% Bug)</text>
+
+    <g clip-path="url(#panel1All)" transform="translate(0, 22)">
+      <!-- Monitor B (Left: x=24..160) -->
+      <rect x="24" y="78" width="136" height="170" fill="url(#monBGrad)"/>
+      <text x="32" y="94" class="font-ui" fill="#cbd5e1" font-size="10" font-weight="600">Monitor B</text>
+      <!-- Mon B Taskbar -->
+      <rect x="24" y="232" width="136" height="16" fill="#020617"/>
+      <rect x="30" y="235" width="10" height="10" rx="2" fill="#0ea5e9"/>
+
+      <!-- Monitor A (Right: x=160..296) -->
+      <rect x="160" y="78" width="136" height="170" fill="url(#gameGrad)"/>
+      <text x="168" y="94" class="font-ui" fill="#e9d5ff" font-size="10" font-weight="600">Mon A: Fullscreen</text>
+
+      <!-- Chrome Window (Width 96px: starts at x=36 on Mon B; slides +62px -> x=98..194, so 34px=35% on Mon A, center=146 < 160!) -->
+      <g class="anim-win">
+        <rect x="36" y="116" width="96" height="68" rx="5" fill="#1e293b" stroke="#38bdf8" stroke-width="2"/>
+        <rect x="36" y="116" width="96" height="16" rx="4" fill="#334155"/>
+        <text x="42" y="127" class="font-ui" fill="#ffffff" font-size="9" font-weight="700">Chrome (Active)</text>
+        <!-- Red Center Dot at x = 36 + 48 = 84 (slides to 84 + 62 = 146, which is left of 160 seam!) -->
+        <circle cx="84" cy="154" r="5" fill="#f43f5e" stroke="#ffffff" stroke-width="1.5" class="anim-dot"/>
+        <text x="84" y="174" text-anchor="middle" class="font-mono" fill="#fda4af" font-size="8" font-weight="700">center()</text>
+      </g>
+
+      <!-- Fullscreen Game Layer 5 Occluding Monitor A (x=160..296) -->
+      <g clip-path="url(#panel1MonA)">
+        <rect x="160" y="78" width="136" height="170" fill="url(#gameGrad)"/>
+        <text x="168" y="94" class="font-ui" fill="#e9d5ff" font-size="10" font-weight="600">Mon A: Fullscreen</text>
+        <rect x="168" y="100" width="96" height="15" rx="3" fill="#451a03" stroke="#f59e0b" stroke-width="1"/>
+        <text x="174" y="111" class="font-mono" fill="#fcd34d" font-size="9" font-weight="700">ActiveLayer (5)</text>
+
+        <!-- Ghost Dashed Red Outline showing where Chrome is buried on Monitor A -->
+        <g class="anim-win">
+          <rect x="36" y="116" width="96" height="68" rx="5" fill="#ef4444" fill-opacity="0.22" stroke="#f87171" stroke-width="2" stroke-dasharray="4 3"/>
+        </g>
+
+        <!-- Bug Callout Badge on Drop -->
+        <g class="anim-drop">
+          <rect x="166" y="192" width="124" height="32" rx="4" fill="#991b1b" stroke="#f87171" stroke-width="1"/>
+          <text x="228" y="205" text-anchor="middle" class="font-ui" fill="#ffffff" font-size="9" font-weight="700">BURIED AFTER DROP!</text>
+          <text x="228" y="218" text-anchor="middle" class="font-mono" fill="#fecaca" font-size="8">m_layer stuck at 5</text>
+        </g>
+      </g>
+
+      <!-- Monitor Seam Line at x=160 -->
+      <line x1="160" y1="78" x2="160" y2="248" stroke="#facc15" stroke-width="1.5" stroke-dasharray="3 3"/>
+    </g>
+
+    <!-- Panel 1 Explanation Footer -->
+    <text x="28" y="290" class="font-ui" fill="#fca5a5" font-size="11" font-weight="600">
+      &#10060; Cache Bug: Chrome stays buried!
+    </text>
+    <text x="28" y="307" class="font-ui" fill="#94a3b8" font-size="10.5">
+      Red dot is still on Mon B (&lt;50%), so KWin skips
+    </text>
+    <text x="28" y="322" class="font-ui" fill="#94a3b8" font-size="10.5">
+      <tspan class="font-mono" fill="#cbd5e1">sendToOutput()</tspan> &amp; never updates <tspan class="font-mono" fill="#cbd5e1">m_layer</tspan>.
+    </text>
+  </g>
+
+  <!-- ========================================================================================= -->
+  <!-- PANEL 2: INTENDED EWMH STANDARD (IF BUG WERE FIXED) -->
+  <!-- ========================================================================================= -->
+  <g>
+    <rect x="336" y="64" width="288" height="272" rx="10" fill="#111827" stroke="#38bdf8" stroke-width="1.5" stroke-opacity="0.6"/>
+    <text x="348" y="88" class="font-ui" fill="#38bdf8" font-size="13" font-weight="700">2. Intended EWMH (If Bug Fixed)</text>
+
+    <g clip-path="url(#panel2All)" transform="translate(0, 22)">
+      <!-- Monitor B (Left: x=344..480) -->
+      <rect x="344" y="78" width="136" height="170" fill="url(#monBGrad)"/>
+      <text x="352" y="94" class="font-ui" fill="#cbd5e1" font-size="10" font-weight="600">Monitor B</text>
+      <rect x="344" y="232" width="136" height="16" fill="#020617"/>
+      <rect x="350" y="235" width="10" height="10" rx="2" fill="#0ea5e9"/>
+
+      <!-- Monitor A (Right: x=480..616) — Game at NormalLayer (2) on drop -->
+      <rect x="480" y="78" width="136" height="170" fill="url(#gameGrad)"/>
+      <text x="488" y="94" class="font-ui" fill="#e9d5ff" font-size="10" font-weight="600">Mon A: Fullscreen</text>
+
+      <!-- Default Layer 5 Badge before drop -->
+      <rect x="488" y="100" width="96" height="15" rx="3" fill="#451a03" stroke="#f59e0b" stroke-width="1"/>
+      <text x="494" y="111" class="font-mono" fill="#fcd34d" font-size="9" font-weight="700">ActiveLayer (5)</text>
+
+      <!-- Demoted Layer 2 Badge on drop -->
+      <g class="anim-drop">
+        <rect x="488" y="100" width="96" height="15" rx="3" fill="#0c4a6e" stroke="#38bdf8" stroke-width="1"/>
+        <text x="494" y="111" class="font-mono" fill="#7dd3fc" font-size="9" font-weight="700">NormalLayer (2)</text>
+      </g>
+
+      <!-- Chrome Window (Visible on top once dropped!) -->
+      <g class="anim-win">
+        <rect x="356" y="116" width="96" height="68" rx="5" fill="#1e293b" stroke="#38bdf8" stroke-width="2"/>
+        <rect x="356" y="116" width="96" height="16" rx="4" fill="#334155"/>
+        <text x="362" y="127" class="font-ui" fill="#ffffff" font-size="9" font-weight="700">Chrome (Active)</text>
+        <circle cx="404" cy="154" r="5" fill="#f43f5e" stroke="#ffffff" stroke-width="1.5" class="anim-dot"/>
+        <text x="404" y="174" text-anchor="middle" class="font-mono" fill="#fda4af" font-size="8" font-weight="700">center()</text>
+      </g>
+
+      <!-- Monitor A Taskbar Pops Up on Drop (EWMH: Dock Layer 3 > NormalLayer 2) -->
+      <g class="anim-drop">
+        <rect x="486" y="198" width="124" height="28" rx="4" fill="#0369a1" stroke="#38bdf8" stroke-width="1"/>
+        <text x="548" y="210" text-anchor="middle" class="font-ui" fill="#ffffff" font-size="8.5" font-weight="700">EWMH §7.11: DOCK POPS UP</text>
+        <text x="548" y="221" text-anchor="middle" class="font-mono" fill="#bae6fd" font-size="8">Taskbar (3) &gt; Game (2)</text>
+
+        <!-- Visible Taskbar at bottom of Monitor A -->
+        <rect x="480" y="230" width="136" height="18" fill="#020617" stroke="#38bdf8" stroke-width="1.5"/>
+        <rect x="486" y="234" width="10" height="10" rx="2" fill="#38bdf8"/>
+        <text x="502" y="242" class="font-mono" fill="#7dd3fc" font-size="8.5" font-weight="700">Taskbar (Layer 3)</text>
+      </g>
+
+      <!-- Monitor Seam Line at x=480 -->
+      <line x1="480" y1="78" x2="480" y2="248" stroke="#facc15" stroke-width="1.5" stroke-dasharray="3 3"/>
+    </g>
+
+    <!-- Panel 2 Explanation Footer -->
+    <text x="348" y="290" class="font-ui" fill="#7dd3fc" font-size="11" font-weight="600">
+      &#9888;&#65039; EWMH Spec: Chrome on top, Taskbar pops up!
+    </text>
+    <text x="348" y="307" class="font-ui" fill="#94a3b8" font-size="10.5">
+      EWMH §7.11 drops unfocused fullscreen to <tspan class="font-mono" fill="#cbd5e1">Layer 2</tspan>,
+    </text>
+    <text x="348" y="322" class="font-ui" fill="#94a3b8" font-size="10.5">
+      which is below <tspan class="font-mono" fill="#cbd5e1">_NET_WM_TYPE_DOCK</tspan> (<tspan class="font-mono" fill="#cbd5e1">Layer 3</tspan>).
+    </text>
+  </g>
+
+  <!-- ========================================================================================= -->
+  <!-- PANEL 3: OUR WINDOWS 11 KWIN SCRIPT -->
+  <!-- ========================================================================================= -->
+  <g>
+    <rect x="656" y="64" width="288" height="272" rx="10" fill="#111827" stroke="#10b981" stroke-width="1.5" stroke-opacity="0.7"/>
+    <text x="668" y="88" class="font-ui" fill="#34d399" font-size="13" font-weight="700">3. Our Windows 11 KWin Script</text>
+
+    <g clip-path="url(#panel3All)" transform="translate(0, 22)">
+      <!-- Monitor B (Left: x=664..800) -->
+      <rect x="664" y="78" width="136" height="170" fill="url(#monBGrad)"/>
+      <text x="672" y="94" class="font-ui" fill="#cbd5e1" font-size="10" font-weight="600">Monitor B</text>
+      <rect x="664" y="232" width="136" height="16" fill="#020617"/>
+      <rect x="670" y="235" width="10" height="10" rx="2" fill="#0ea5e9"/>
+
+      <!-- Monitor A (Right: x=800..936) — Game covers Taskbar in AboveLayer (3)! -->
+      <rect x="800" y="78" width="136" height="170" fill="url(#gameGrad)"/>
+      <text x="808" y="94" class="font-ui" fill="#e9d5ff" font-size="10" font-weight="600">Mon A: Fullscreen</text>
+
+      <!-- Default Layer 5 Badge -->
+      <rect x="808" y="100" width="96" height="15" rx="3" fill="#451a03" stroke="#f59e0b" stroke-width="1"/>
+      <text x="814" y="111" class="font-mono" fill="#fcd34d" font-size="9" font-weight="700">ActiveLayer (5)</text>
+
+      <!-- Promoted AboveLayer (3) Badge on overlap -->
+      <g class="anim-drop">
+        <rect x="808" y="100" width="96" height="15" rx="3" fill="#064e3b" stroke="#10b981" stroke-width="1"/>
+        <text x="814" y="111" class="font-mono" fill="#6ee7b7" font-size="9" font-weight="700">AboveLayer (3)</text>
+
+        <rect x="806" y="198" width="124" height="32" rx="4" fill="#065f46" stroke="#34d399" stroke-width="1"/>
+        <text x="868" y="211" text-anchor="middle" class="font-ui" fill="#ffffff" font-size="8.5" font-weight="700">TASKBAR STAYS HIDDEN!</text>
+        <text x="868" y="223" text-anchor="middle" class="font-mono" fill="#a7f3d0" font-size="8">Dock(3) &lt; Game(3) &lt; Win(3)</text>
+      </g>
+
+      <!-- Chrome Window (Always visible on top during drag AND after drop!) -->
+      <g class="anim-win">
+        <rect x="676" y="116" width="96" height="68" rx="5" fill="#1e293b" stroke="#34d399" stroke-width="2"/>
+        <rect x="676" y="116" width="96" height="16" rx="4" fill="#065f46"/>
+        <text x="682" y="127" class="font-ui" fill="#ffffff" font-size="9" font-weight="700">Chrome (Layer 3)</text>
+        <circle cx="724" cy="154" r="5" fill="#f43f5e" stroke="#ffffff" stroke-width="1.5" class="anim-dot"/>
+        <text x="724" y="174" text-anchor="middle" class="font-mono" fill="#a7f3d0" font-size="8" font-weight="700">intersects()</text>
+      </g>
+
+      <!-- Monitor Seam Line at x=800 -->
+      <line x1="800" y1="78" x2="800" y2="248" stroke="#facc15" stroke-width="1.5" stroke-dasharray="3 3"/>
+    </g>
+
+    <!-- Panel 3 Explanation Footer -->
+    <text x="668" y="290" class="font-ui" fill="#6ee7b7" font-size="11" font-weight="600">
+      &#9989; Windows 11 Behavior Achieved!
+    </text>
+    <text x="668" y="307" class="font-ui" fill="#94a3b8" font-size="10.5">
+      Chrome renders on top from 1%–100% overlap,
+    </text>
+    <text x="668" y="322" class="font-ui" fill="#94a3b8" font-size="10.5">
+      and the Fullscreen Game continues covering Taskbar.
+    </text>
+  </g>
+
+  <!-- Bottom Interactive Call-To-Action Pill -->
+  <rect x="230" y="348" width="500" height="30" rx="15" fill="#0284c7" fill-opacity="0.25" stroke="#38bdf8" stroke-width="1.5"/>
+  <text x="480" y="367" text-anchor="middle" class="font-ui" fill="#e0f2fe" font-size="12" font-weight="700">
+    &#9654; Click Here to Launch the Interactive Drag-and-Drop Simulator (GitHub Pages)
+  </text>
+</svg>

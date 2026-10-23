@@ -41,6 +41,12 @@ However, in KWin's layer architecture:
 | Taskbar stays hidden beneath the fullscreen app while a smaller window sits on top of the fullscreen app | **No** (Taskbar pops up over fullscreen app) | **No** (Taskbar is always on top) | **Yes** |
 | Pressing `Meta` (Super) brings up the Application Launcher & Taskbar | Yes | Yes | **Yes** |
 
+### Visual Comparison & Interactive Simulator
+
+[![Animated Comparison of Actual KWin 6.8, Intended EWMH, and Windows 11 KWin Script](docs/kwin-fullscreen-comparison.svg)](https://covarianttensor.github.io/kwin-win11-fullscreen-stacking/)
+
+> **[▶ Launch the Interactive Drag-and-Drop Simulator (GitHub Pages)](https://covarianttensor.github.io/kwin-win11-fullscreen-stacking/)** — Drag the Chrome window across the monitor boundary yourself and toggle between **Actual KWin 6.8 (`<50%` Bug)**, **Intended EWMH (No Bug)**, and **Our Windows 11 Script** with live EWMH §7.11 specification citations.
+
 ---
 
 ## Installation

@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KWin Multi-Monitor Fullscreen Stacking — Interactive Simulator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --background: #0b0f19;
+      --card: #111827;
+      --border: #1f2937;
+      --foreground: #f3f4f6;
+      --muted-foreground: #9ca3af;
+      --primary: #38bdf8;
+      --primary-foreground: #030712;
+    }
+    body {
+      background-color: var(--background);
+      color: var(--foreground);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .win-shadow {
+      box-shadow: 0 12px 28px -6px rgba(0, 0, 0, 0.65), 0 4px 12px -2px rgba(0, 0, 0, 0.5);
+    }
+    .pulse-ring {
+      animation: pulseRing 1.6s cubic-bezier(0.24, 0, 0.38, 1) infinite;
+    }
+    @keyframes pulseRing {
+      0% { transform: scale(0.9); opacity: 0.9; }
+      70% { transform: scale(1.8); opacity: 0; }
+      100% { transform: scale(1.8); opacity: 0; }
+    }
+  </style>
+</head>
+<body class="min-h-screen antialiased p-4 md:p-8 select-none">
+  <div class="max-w-5xl mx-auto">
+    <!-- Page Header -->
+    <div class="flex flex-wrap items-center justify-between gap-4 mb-5">
+      <div>
+        <h1 class="text-xl md:text-2xl font-bold text-white">
+          KWin Multi-Monitor Fullscreen Stacking — Interactive Simulator
+        </h1>
+        <p class="text-sm text-slate-400 mt-0.5">
+          Compare <strong>Intended EWMH (Bug-Free)</strong>, <strong>Actual KWin 6.8 (&lt;50% Cache Bug)</strong>, and our <strong>Windows 11 KWin Script</strong>. Drag the Chrome window across the monitor border!
+        </p>
+      </div>
+      <a href="https://github.com/covarianttensor/kwin-win11-fullscreen-stacking" class="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-xs font-semibold text-white transition">
+        &#8592; Back to GitHub Repository
+      </a>
+    </div>
+
+    <!-- Main Interactive Simulator Card -->
+    <div class="bg-[var(--card)] text-[var(--foreground)] border border-[var(--border)] rounded-xl p-4 md:p-5 shadow-xl">
+      <!-- Top Controls: Play/Pause, 4 Scenes, and 3-Way Mode Comparison -->
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-3.5">
+        <div class="flex flex-wrap items-center gap-2">
+          <button id="playBtn" class="px-3 py-1.5 rounded-lg bg-sky-400 text-slate-950 font-semibold text-xs flex items-center gap-1.5 hover:bg-sky-300 transition">
+            <span id="playIcon">&#9646;&#9646;</span>
+            <span id="playLabel">Pause Animation</span>
+          </button>
+          <div class="flex items-center rounded-lg border border-slate-700 overflow-hidden text-xs">
+            <button data-scene="0" class="scene-btn px-2.5 py-1.5 font-medium transition">1. Focus Mon B</button>
+            <button data-scene="1" class="scene-btn px-2.5 py-1.5 font-medium transition border-l border-slate-700">2. Mid-Drag</button>
+            <button data-scene="2" class="scene-btn px-2.5 py-1.5 font-medium transition border-l border-slate-700">3. Drop at 35% (&lt;50%)</button>
+            <button data-scene="3" class="scene-btn px-2.5 py-1.5 font-medium transition border-l border-slate-700">4. Drop at 70% (&gt;50%)</button>
+            <button data-scene="4" class="scene-btn px-2.5 py-1.5 font-medium transition border-l border-slate-700">5. Click Game</button>
+          </div>
+        </div>
+
+        <!-- 3-Way Behavior Selector -->
+        <div class="flex items-center rounded-lg border border-slate-700 overflow-hidden text-xs">
+          <button id="modeBuggy" class="px-3 py-1.5 font-semibold bg-red-500/20 text-red-400">Actual KWin 6.8 (Bug)</button>
+          <button id="modeIntended" class="px-3 py-1.5 font-medium text-slate-400 border-l border-slate-700">Intended EWMH (No Bug)</button>
+          <button id="modeWin11" class="px-3 py-1.5 font-medium text-slate-400 border-l border-slate-700">Our Win11 Script</button>
+        </div>
+      </div>
+
+      <!-- Standards Compliance & Explanation Banner -->
+      <div class="mb-3.5 px-3.5 py-2.5 rounded-lg border border-slate-700/80 bg-slate-900/90 flex flex-col gap-1.5">
+        <div class="flex items-center justify-between gap-2">
+          <div class="text-sm leading-snug">
+            <span id="storyStepBadge" class="inline-block font-bold px-2 py-0.5 rounded mr-2 text-xs bg-sky-500/20 text-sky-400">SCENE 1</span>
+            <span id="storyText" class="text-white font-semibold">Chrome is focused on Monitor B; Fullscreen Game on Monitor A stays above its Taskbar.</span>
+          </div>
+          <span class="text-xs text-sky-400 shrink-0 font-medium hidden md:inline">&#128070; Drag the Chrome window or click the Game!</span>
+        </div>
+        <div class="text-xs text-slate-300 leading-snug flex items-start gap-2">
+          <span class="px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-semibold shrink-0">Spec / Source Citation</span>
+          <span id="specCitationText">EWMH §7.11 + KWin Multi-Screen Note (<code>Window::isActiveFullScreen</code> in <code>src/window.cpp</code>): A fullscreen window stays in <code>ActiveLayer (5)</code> above <code>_NET_WM_TYPE_DOCK</code> as long as no window is focused on its monitor.</span>
+        </div>
+      </div>
+
+      <!-- Dual Monitor Visual Stage -->
+      <div id="stage" class="relative w-full h-64 md:h-72 rounded-xl border border-slate-700 overflow-hidden grid grid-cols-2 bg-neutral-950">
+        <!-- Center Seam Line -->
+        <div class="absolute inset-y-0 left-1/2 -ml-px w-0.5 bg-yellow-400/80 z-40 pointer-events-none"></div>
+        <div class="absolute top-2 left-1/2 -translate-x-1/2 z-40 px-2.5 py-0.5 rounded bg-neutral-900/95 border border-yellow-400/60 text-yellow-300 text-xs font-semibold pointer-events-none shadow">
+          Monitor Border
+        </div>
+
+        <!-- MONITOR B (Left) -->
+        <div class="relative h-full border-r border-neutral-800 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 overflow-hidden">
+          <div class="absolute top-2 left-3 text-xs font-semibold text-slate-300 bg-black/50 px-2.5 py-1 rounded pointer-events-none">
+            Monitor B (Secondary)
+          </div>
+          <!-- Monitor B Taskbar -->
+          <div class="absolute bottom-0 inset-x-0 h-7 bg-slate-950/95 border-t border-slate-700/80 flex items-center px-3 gap-2 z-20 pointer-events-none">
+            <div class="w-4 h-4 rounded-sm bg-sky-500 flex items-center justify-center text-white font-bold text-xs">K</div>
+            <div class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-xs">Chrome</div>
+          </div>
+        </div>
+
+        <!-- MONITOR A (Right) -->
+        <div class="relative h-full bg-gradient-to-br from-indigo-950 via-purple-950 to-slate-900 overflow-hidden">
+          <!-- Fullscreen Game Surface -->
+          <div id="fullscreenGame" class="absolute inset-0 bg-gradient-to-br from-indigo-900 via-purple-900 to-fuchsia-950 flex flex-col justify-between p-3 transition-all duration-200 z-30 cursor-pointer">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-white bg-black/50 px-2.5 py-1 rounded">
+                Monitor A: Fullscreen Game (Click to Focus)
+              </span>
+              <span id="fsLayerBadge" class="text-xs font-bold px-2.5 py-1 rounded bg-amber-500/20 text-amber-300 border border-amber-400/40">
+                ActiveLayer (5)
+              </span>
+            </div>
+
+            <div class="my-auto text-center pointer-events-none">
+              <div class="text-xs md:text-sm uppercase tracking-widest text-purple-200 font-bold">_NET_WM_STATE_FULLSCREEN</div>
+              <div id="fsStatusSub" class="text-xs text-purple-200/90 mt-1">Covers _NET_WM_TYPE_DOCK (Taskbar) when in Layer 5</div>
+            </div>
+
+            <div class="h-6"></div>
+          </div>
+
+          <!-- Monitor A Taskbar (_NET_WM_TYPE_DOCK) -->
+          <div id="monitorATaskbar" class="absolute bottom-0 inset-x-0 h-7 bg-slate-950/95 border-t border-sky-400 flex items-center justify-between px-3 z-20 pointer-events-none transition-all duration-200">
+            <div class="flex items-center gap-2">
+              <div class="w-4 h-4 rounded-sm bg-sky-500 flex items-center justify-center text-white font-bold text-xs">K</div>
+              <div class="px-2 py-0.5 rounded bg-slate-800 text-slate-200 text-xs">Fullscreen Game</div>
+            </div>
+            <span class="text-xs font-bold text-sky-300">_NET_WM_TYPE_DOCK (Layer 3)</span>
+          </div>
+
+          <!-- Callout when Taskbar pops up per EWMH -->
+          <div id="taskbarPopCallout" class="absolute bottom-9 right-3 z-40 px-2.5 py-1 rounded bg-sky-400 text-slate-950 font-bold text-xs shadow-lg hidden pointer-events-none">
+            &#8595; EWMH §7.11: Taskbar Pops Up (Layer 3 &gt; Layer 2)
+          </div>
+        </div>
+
+        <!-- DRAGGABLE CHROME WINDOW -->
+        <div id="chromeWindow" class="absolute top-14 w-52 h-36 rounded-lg bg-slate-800 border-2 border-sky-400 win-shadow cursor-grab active:cursor-grabbing z-25" style="left: 36px;">
+          <div class="h-7 bg-slate-700 rounded-t-md px-2.5 flex items-center justify-between border-b border-slate-600">
+            <span id="chromeTitleText" class="text-xs font-semibold text-white truncate">Chrome (Focused)</span>
+            <div class="flex gap-1.5">
+              <span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+              <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+            </div>
+          </div>
+          <div class="p-2.5 flex flex-col items-center justify-center h-28 relative">
+            <div class="text-xs text-slate-100 font-semibold" id="overlapPctLabel">0% on Monitor A</div>
+            <div class="text-xs text-sky-300 mt-0.5" id="chromeLayerLabel">NormalLayer (2)</div>
+
+            <!-- Center Point Indicator -->
+            <div class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none">
+              <div class="w-3.5 h-3.5 rounded-full bg-rose-500 border-2 border-white shadow relative flex items-center justify-center">
+                <div class="w-3.5 h-3.5 rounded-full bg-rose-400 pulse-ring absolute"></div>
+              </div>
+            </div>
+          </div>
+          <div class="absolute -bottom-5 left-1/2 -translate-x-1/2 whitespace-nowrap px-2 py-0.5 rounded bg-rose-600 text-white text-xs font-bold shadow pointer-events-none">
+            &#9679; geo.center()
+          </div>
+        </div>
+
+        <!-- GHOST OUTLINE (Only shown when hidden behind Fullscreen Game) -->
+        <div id="chromeGhost" class="absolute top-14 w-52 h-36 rounded-lg border-2 border-dashed border-amber-400 bg-amber-500/15 z-35 pointer-events-none hidden flex-col items-center justify-center p-2.5 text-center">
+          <div id="ghostTitle" class="px-2.5 py-1 rounded bg-amber-500 text-slate-950 text-xs font-bold shadow">
+            DEFERRED MID-DRAG
+          </div>
+          <div id="ghostSub" class="text-xs text-amber-100 mt-1.5 font-medium">
+            Waiting for mouse release
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom 3-Column Inspector -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4 text-xs">
+        <div class="p-3 rounded-lg border border-slate-700/80 bg-slate-900/90">
+          <div class="flex items-center justify-between font-semibold mb-1">
+            <span>1. Edge Overlap (<code>intersects</code>)</span>
+            <span id="badgeIntersects" class="px-2 py-0.5 rounded bg-slate-700 text-slate-300 font-bold">NO (0%)</span>
+          </div>
+          <div id="cardIntersectsDesc" class="text-slate-400 leading-relaxed">
+            <code>Window::isOnOutput()</code> checks if <em>any pixel</em> of Chrome touches Monitor A.
+          </div>
+        </div>
+
+        <div class="p-3 rounded-lg border border-slate-700/80 bg-slate-900/90">
+          <div class="flex items-center justify-between font-semibold mb-1">
+            <span>2. Center Dot (<code>geo.center()</code>)</span>
+            <span id="badgeCenter" class="px-2 py-0.5 rounded bg-slate-700 text-slate-300 font-bold">NO (0%)</span>
+          </div>
+          <div id="cardCenterDesc" class="text-slate-400 leading-relaxed">
+            <code>finishInteractiveMoveResize()</code> only refreshes <code>m_layer</code> if the Red Center Dot (&gt;50%) crossed onto Monitor A.
+          </div>
+        </div>
+
+        <div class="p-3 rounded-lg border border-slate-700/80 bg-slate-900/90">
+          <div class="flex items-center justify-between font-semibold mb-1">
+            <span>3. Resulting Monitor A Z-Order</span>
+            <span id="cardOrderBadge" class="px-2 py-0.5 rounded bg-sky-500/20 text-sky-400 font-bold">EWMH Spec</span>
+          </div>
+          <div id="cardOrderText" class="text-slate-300 leading-relaxed">
+            Bottom &#8594; Top: <strong>Taskbar (3) &lt; Game (5)</strong>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const stage = document.getElementById('stage');
+    const chromeWindow = document.getElementById('chromeWindow');
+    const chromeGhost = document.getElementById('chromeGhost');
+    const ghostTitle = document.getElementById('ghostTitle');
+    const ghostSub = document.getElementById('ghostSub');
+    const chromeTitleText = document.getElementById('chromeTitleText');
+    const chromeLayerLabel = document.getElementById('chromeLayerLabel');
+
+    const fullscreenGame = document.getElementById('fullscreenGame');
+    const monitorATaskbar = document.getElementById('monitorATaskbar');
+    const taskbarPopCallout = document.getElementById('taskbarPopCallout');
+    const fsLayerBadge = document.getElementById('fsLayerBadge');
+    const fsStatusSub = document.getElementById('fsStatusSub');
+    const overlapPctLabel = document.getElementById('overlapPctLabel');
+
+    const storyStepBadge = document.getElementById('storyStepBadge');
+    const storyText = document.getElementById('storyText');
+    const specCitationText = document.getElementById('specCitationText');
+
+    const badgeIntersects = document.getElementById('badgeIntersects');
+    const badgeCenter = document.getElementById('badgeCenter');
+    const cardOrderBadge = document.getElementById('cardOrderBadge');
+    const cardOrderText = document.getElementById('cardOrderText');
+
+    const playBtn = document.getElementById('playBtn');
+    const playIcon = document.getElementById('playIcon');
+    const playLabel = document.getElementById('playLabel');
+    const modeIntended = document.getElementById('modeIntended');
+    const modeBuggy = document.getElementById('modeBuggy');
+    const modeWin11 = document.getElementById('modeWin11');
+    const sceneBtns = document.querySelectorAll('.scene-btn');
+
+    let mode = 'buggy';
+    let isPlaying = true;
+    let isDragging = false;
+    let currentScene = 0;
+    let sceneStartTime = performance.now();
+
+    let normX = 0.08;
+    let mouseDownSim = false;
+    let gameFocusedSim = false;
+
+    const SCENES = [
+      {
+        badge: 'SCENE 1: CHROME FOCUSED ON MONITOR B',
+        badgeClass: 'bg-sky-500/20 text-sky-400',
+        fromX: 0.08,
+        toX: 0.08,
+        mouseDown: false,
+        gameFocused: false,
+        duration: 3000,
+        story: {
+          intended: 'Chrome is focused on Monitor B (0% on Monitor A). Fullscreen Game stays in ActiveLayer (5) above its Taskbar.',
+          buggy: 'Chrome is focused on Monitor B (0% on Monitor A). Fullscreen Game stays in ActiveLayer (5) above its Taskbar.',
+          win11: 'Chrome is focused on Monitor B (0% on Monitor A). Fullscreen Game stays in ActiveLayer (5) above its Taskbar.'
+        },
+        citation: 'EWMH §7.11 + KWin Implementation Note (src/window.cpp): Sticky fullscreen windows remain in ActiveLayer (5) above _NET_WM_TYPE_DOCK (Layer 3) as long as no focused window intersects their monitor.'
+      },
+      {
+        badge: 'SCENE 2: DRAGGING CHROME ONTO MONITOR A',
+        badgeClass: 'bg-amber-500/20 text-amber-400',
+        fromX: 0.08,
+        toX: 0.41,
+        mouseDown: true,
+        gameFocused: false,
+        duration: 3200,
+        story: {
+          intended: 'While holding the mouse button mid-drag, KWin defers layer updates until you finish moving (mouse release).',
+          buggy: 'While holding the mouse button mid-drag, KWin defers layer updates until you finish moving (mouse release).',
+          win11: 'Our Win11 Script: Updates live in AboveLayer (3) with zero taskbar flicker, so Chrome stays visible during the drag!'
+        },
+        citation: 'EWMH Flicker Prevention (Window::finishInteractiveMoveResize): Because EWMH drops unfocused fullscreen apps below the Dock (Layer 2 < Layer 3), deferring until mouse-up prevents the taskbar from flashing if you drag a window across a middle monitor.'
+      },
+      {
+        badge: 'SCENE 3: MOUSE RELEASED AT 35% OVERLAP (<50%)',
+        badgeClass: 'bg-red-500/20 text-red-400',
+        fromX: 0.41,
+        toX: 0.41,
+        mouseDown: false,
+        gameFocused: false,
+        duration: 4800,
+        story: {
+          intended: 'INTENDED EWMH (No Bug): Releasing at 35% demotes the Game to NormalLayer (2)! Chrome renders on top of the Game, AND the Taskbar (Layer 3) pops up.',
+          buggy: 'ACTUAL KWIN 6.8 BUG: Because 35% < 50% (Red Center Dot still on Mon B), KWin skips sendToOutput()! Game stays stuck at Layer 5, burying Chrome.',
+          win11: 'WIN11 SCRIPT: Both Game and Chrome are placed in AboveLayer (3) — Chrome sits on top of the Game, while the Game keeps covering the Taskbar!'
+        },
+        citation: 'Mismatch in src/window.cpp: Window::isOnOutput() uses intersects() (true at 1% overlap), whereas finishInteractiveMoveResize() checks moveResizeOutput() via geo.center() (true only >50% overlap).'
+      },
+      {
+        badge: 'SCENE 4: MOUSE RELEASED AT 70% OVERLAP (>50%)',
+        badgeClass: 'bg-emerald-500/20 text-emerald-400',
+        fromX: 0.41,
+        toX: 0.72,
+        mouseDown: false,
+        gameFocused: false,
+        duration: 4000,
+        story: {
+          intended: 'At 70% overlap, Game is in NormalLayer (2): Chrome sits above the Game, and the Taskbar (Layer 3) pops up per EWMH §7.11.',
+          buggy: 'Once the Red Center Dot crosses onto Monitor A (>50%), sendToOutput() finally demotes the Game to Layer 2 — Chrome appears, but the Taskbar pops up!',
+          win11: 'WIN11 SCRIPT: Chrome sits on top of the Game (Layer 3), and the Taskbar stays hidden underneath the Game!'
+        },
+        citation: 'EWMH §7.11 (Stacking Order): "Windows with state _NET_WM_STATE_FULLSCREEN that are not focused are treated as normal windows" (NormalLayer 2, below _NET_WM_TYPE_DOCK at AboveLayer 3).'
+      },
+      {
+        badge: 'SCENE 5: CLICKING BACK ON FULLSCREEN GAME',
+        badgeClass: 'bg-purple-500/20 text-purple-400',
+        fromX: 0.72,
+        toX: 0.72,
+        mouseDown: false,
+        gameFocused: true,
+        duration: 3600,
+        story: {
+          intended: 'Clicking the Fullscreen Game focuses it again: EWMH promotes it back to ActiveLayer (5), covering both Chrome and the Taskbar.',
+          buggy: 'Clicking the Fullscreen Game focuses it in ActiveLayer (5), covering both Chrome and the Taskbar.',
+          win11: 'Clicking the Fullscreen Game releases the script\'s AboveLayer promotion and restores ActiveLayer (5), sending Chrome behind it.'
+        },
+        citation: 'EWMH §7.11 (Focused Fullscreen): "Focused windows having state _NET_WM_STATE_FULLSCREEN are on the highest layer" (ActiveLayer 5).'
+      }
+    ];
+
+    function updateButtons() {
+      sceneBtns.forEach((btn, idx) => {
+        const borderCls = idx > 0 ? ' border-l border-slate-700' : '';
+        if (idx === currentScene) {
+          btn.className = 'scene-btn px-2.5 py-1.5 font-semibold transition bg-sky-400 text-slate-950' + borderCls;
+        } else {
+          btn.className = 'scene-btn px-2.5 py-1.5 font-medium text-slate-400 hover:text-white transition' + borderCls;
+        }
+      });
+
+      modeBuggy.className = mode === 'buggy'
+        ? 'px-3 py-1.5 font-semibold bg-red-500/20 text-red-400'
+        : 'px-3 py-1.5 font-medium text-slate-400 hover:text-white';
+      modeIntended.className = mode === 'intended'
+        ? 'px-3 py-1.5 font-semibold bg-sky-500/20 text-sky-400 border-l border-slate-700'
+        : 'px-3 py-1.5 font-medium text-slate-400 hover:text-white border-l border-slate-700';
+      modeWin11.className = mode === 'win11'
+        ? 'px-3 py-1.5 font-semibold bg-emerald-500/20 text-emerald-400 border-l border-slate-700'
+        : 'px-3 py-1.5 font-medium text-slate-400 hover:text-white border-l border-slate-700';
+    }
+
+    function applyBannerText() {
+      const s = SCENES[currentScene];
+      storyStepBadge.textContent = s.badge;
+      storyStepBadge.className = `inline-block font-bold px-2 py-0.5 rounded mr-2 text-xs ${s.badgeClass}`;
+      storyText.textContent = s.story[mode];
+      specCitationText.textContent = s.citation;
+      updateButtons();
+    }
+
+    function renderState() {
+      const stageRect = stage.getBoundingClientRect();
+      const stageW = stageRect.width || 800;
+      const winW = chromeWindow.offsetWidth || 208;
+      const seamX = stageW / 2;
+
+      const minLeft = 16;
+      const maxLeft = stageW - winW - 16;
+      const leftPx = minLeft + normX * (maxLeft - minLeft);
+
+      chromeWindow.style.left = `${leftPx}px`;
+      chromeGhost.style.left = `${leftPx}px`;
+
+      const winRight = leftPx + winW;
+      const winCenter = leftPx + winW / 2;
+
+      const overlapPx = Math.max(0, Math.min(winW, winRight - seamX));
+      const overlapPct = Math.round((overlapPx / winW) * 100);
+      const intersectsMonA = overlapPct > 0;
+      const centerOnMonA = winCenter >= seamX;
+
+      overlapPctLabel.textContent = `${overlapPct}% on Monitor A`;
+
+      badgeIntersects.textContent = intersectsMonA ? `YES (${overlapPct}%)` : 'NO (0%)';
+      badgeIntersects.className = intersectsMonA
+        ? 'px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold'
+        : 'px-2 py-0.5 rounded bg-slate-700 text-slate-300 font-bold';
+
+      badgeCenter.textContent = centerOnMonA ? `YES (${overlapPct}%)` : `NO (${overlapPct}%)`;
+      badgeCenter.className = centerOnMonA
+        ? 'px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold'
+        : (intersectsMonA ? 'px-2 py-0.5 rounded bg-red-500/20 text-red-400 font-bold' : 'px-2 py-0.5 rounded bg-slate-700 text-slate-300 font-bold');
+
+      if (gameFocusedSim) {
+        chromeTitleText.textContent = 'Chrome (Unfocused)';
+        chromeWindow.classList.remove('border-sky-400');
+        chromeWindow.classList.add('border-slate-500');
+      } else {
+        chromeTitleText.textContent = mouseDownSim ? 'Chrome (Dragging...)' : 'Chrome (Focused)';
+        chromeWindow.classList.add('border-sky-400');
+        chromeWindow.classList.remove('border-slate-500');
+      }
+
+      if (mode === 'intended') {
+        const gameDemoted = !gameFocusedSim && !mouseDownSim && intersectsMonA;
+        chromeLayerLabel.textContent = 'NormalLayer (2)';
+
+        if (gameDemoted) {
+          fullscreenGame.style.zIndex = '10';
+          chromeWindow.style.zIndex = '30';
+          monitorATaskbar.style.zIndex = '35';
+          chromeGhost.classList.add('hidden');
+          chromeGhost.classList.remove('flex');
+          taskbarPopCallout.classList.remove('hidden');
+
+          fsLayerBadge.textContent = 'EWMH: NormalLayer (2)';
+          fsLayerBadge.className = 'text-xs font-bold px-2.5 py-1 rounded bg-sky-500/20 text-sky-300 border border-sky-400/40';
+          fsStatusSub.textContent = 'Unfocused on active screen -> Treated as Normal Window (Layer 2)';
+
+          cardOrderBadge.textContent = 'Bug-Free EWMH';
+          cardOrderBadge.className = 'px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold';
+          cardOrderText.innerHTML = 'Bottom &#8594; Top: <strong>Game (2) &lt; Chrome (2) &lt; Taskbar (3)</strong>';
+        } else {
+          fullscreenGame.style.zIndex = '30';
+          chromeWindow.style.zIndex = '25';
+          monitorATaskbar.style.zIndex = '20';
+          taskbarPopCallout.classList.add('hidden');
+
+          fsLayerBadge.textContent = 'EWMH: ActiveLayer (5)';
+          fsLayerBadge.className = 'text-xs font-bold px-2.5 py-1 rounded bg-amber-500/20 text-amber-300 border border-amber-400/40';
+          fsStatusSub.textContent = gameFocusedSim
+            ? 'Focused Fullscreen -> Highest Layer (Covers Chrome & Taskbar)'
+            : 'Covers _NET_WM_TYPE_DOCK (Taskbar) when in Layer 5';
+
+          if (intersectsMonA && mouseDownSim) {
+            chromeGhost.classList.remove('hidden');
+            chromeGhost.classList.add('flex');
+            ghostTitle.textContent = 'DEFERRED MID-DRAG';
+            ghostTitle.className = 'px-2.5 py-1 rounded bg-amber-500 text-slate-950 text-xs font-bold shadow';
+            ghostSub.textContent = 'Avoids flashing Taskbar mid-drag';
+          } else if (intersectsMonA && gameFocusedSim) {
+            chromeGhost.classList.remove('hidden');
+            chromeGhost.classList.add('flex');
+            ghostTitle.textContent = 'BEHIND FOCUSED GAME';
+            ghostTitle.className = 'px-2.5 py-1 rounded bg-purple-500 text-white text-xs font-bold shadow';
+            ghostSub.textContent = 'EWMH: Focused Game is Layer 5';
+          } else {
+            chromeGhost.classList.add('hidden');
+            chromeGhost.classList.remove('flex');
+          }
+
+          cardOrderBadge.textContent = 'EWMH Spec';
+          cardOrderBadge.className = 'px-2 py-0.5 rounded bg-sky-500/20 text-sky-400 font-bold';
+          cardOrderText.innerHTML = 'Bottom &#8594; Top: <strong>Chrome (2) &lt; Taskbar (3) &lt; Game (5)</strong>';
+        }
+      } else if (mode === 'buggy') {
+        const gameDemoted = !gameFocusedSim && !mouseDownSim && centerOnMonA;
+        chromeLayerLabel.textContent = 'NormalLayer (2)';
+
+        if (gameDemoted) {
+          fullscreenGame.style.zIndex = '10';
+          chromeWindow.style.zIndex = '30';
+          monitorATaskbar.style.zIndex = '35';
+          chromeGhost.classList.add('hidden');
+          chromeGhost.classList.remove('flex');
+          taskbarPopCallout.classList.remove('hidden');
+
+          fsLayerBadge.textContent = 'NormalLayer (2)';
+          fsLayerBadge.className = 'text-xs font-bold px-2.5 py-1 rounded bg-sky-500/20 text-sky-300 border border-sky-400/40';
+          fsStatusSub.textContent = 'Center dot crossed >50%: Demoted to Layer 2';
+
+          cardOrderBadge.textContent = 'EWMH Spec';
+          cardOrderBadge.className = 'px-2 py-0.5 rounded bg-sky-500/20 text-sky-400 font-bold';
+          cardOrderText.innerHTML = 'Bottom &#8594; Top: <strong>Game (2) &lt; Chrome (2) &lt; Taskbar (3)</strong>';
+        } else {
+          fullscreenGame.style.zIndex = '30';
+          chromeWindow.style.zIndex = '25';
+          monitorATaskbar.style.zIndex = '20';
+          taskbarPopCallout.classList.add('hidden');
+
+          const isStaleBug = intersectsMonA && !mouseDownSim && !gameFocusedSim && !centerOnMonA;
+
+          fsLayerBadge.textContent = isStaleBug ? 'STUCK: ActiveLayer (5)!' : 'ActiveLayer (5)';
+          fsLayerBadge.className = isStaleBug
+            ? 'text-xs font-bold px-2.5 py-1 rounded bg-red-500/30 text-red-200 border border-red-400'
+            : 'text-xs font-bold px-2.5 py-1 rounded bg-amber-500/20 text-amber-300 border border-amber-400/40';
+
+          if (intersectsMonA) {
+            chromeGhost.classList.remove('hidden');
+            chromeGhost.classList.add('flex');
+            if (isStaleBug) {
+              ghostTitle.textContent = 'BUG: BURIED AFTER DROP!';
+              ghostTitle.className = 'px-2.5 py-1 rounded bg-red-600 text-white text-xs font-bold shadow';
+              ghostSub.textContent = 'm_layer stuck at 5 (center < 50%)';
+            } else if (mouseDownSim) {
+              ghostTitle.textContent = 'DEFERRED MID-DRAG';
+              ghostTitle.className = 'px-2.5 py-1 rounded bg-amber-500 text-slate-950 text-xs font-bold shadow';
+              ghostSub.textContent = 'Waiting for mouse release';
+            } else {
+              ghostTitle.textContent = 'BEHIND FOCUSED GAME';
+              ghostTitle.className = 'px-2.5 py-1 rounded bg-purple-500 text-white text-xs font-bold shadow';
+              ghostSub.textContent = 'Game is focused (Layer 5)';
+            }
+          } else {
+            chromeGhost.classList.add('hidden');
+            chromeGhost.classList.remove('flex');
+          }
+
+          cardOrderBadge.textContent = isStaleBug ? 'STALE CACHE BUG!' : 'Default KWin';
+          cardOrderBadge.className = isStaleBug
+            ? 'px-2 py-0.5 rounded bg-red-500/30 text-red-300 font-bold'
+            : 'px-2 py-0.5 rounded bg-sky-500/20 text-sky-400 font-bold';
+          cardOrderText.innerHTML = isStaleBug
+            ? 'Bug: <strong>Focused Chrome (2) buried under unfocused Game (5)!</strong>'
+            : 'Bottom &#8594; Top: <strong>Chrome (2) &lt; Taskbar (3) &lt; Game (5)</strong>';
+        }
+      } else {
+        taskbarPopCallout.classList.add('hidden');
+        const scriptActive = !gameFocusedSim && intersectsMonA;
+
+        if (scriptActive) {
+          monitorATaskbar.style.zIndex = '20';
+          fullscreenGame.style.zIndex = '28';
+          chromeWindow.style.zIndex = '35';
+          chromeGhost.classList.add('hidden');
+          chromeGhost.classList.remove('flex');
+          chromeLayerLabel.textContent = 'AboveLayer (3)';
+
+          fsLayerBadge.textContent = 'Script: AboveLayer (3)';
+          fsLayerBadge.className = 'text-xs font-bold px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400/40';
+          fsStatusSub.textContent = 'Covers Taskbar (Layer 3), while Chrome sits on top!';
+
+          cardOrderBadge.textContent = 'Win11 Behavior';
+          cardOrderBadge.className = 'px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold';
+          cardOrderText.innerHTML = 'Bottom &#8594; Top: <strong>Taskbar (3) &lt; Game (3) &lt; Chrome (3)</strong>';
+        } else {
+          fullscreenGame.style.zIndex = '30';
+          chromeWindow.style.zIndex = '25';
+          monitorATaskbar.style.zIndex = '20';
+          chromeLayerLabel.textContent = 'NormalLayer (2)';
+
+          if (intersectsMonA && gameFocusedSim) {
+            chromeGhost.classList.remove('hidden');
+            chromeGhost.classList.add('flex');
+            ghostTitle.textContent = 'BEHIND FOCUSED GAME';
+            ghostTitle.className = 'px-2.5 py-1 rounded bg-purple-500 text-white text-xs font-bold shadow';
+            ghostSub.textContent = 'Game is focused (Layer 5)';
+          } else {
+            chromeGhost.classList.add('hidden');
+            chromeGhost.classList.remove('flex');
+          }
+
+          fsLayerBadge.textContent = 'ActiveLayer (5)';
+          fsLayerBadge.className = 'text-xs font-bold px-2.5 py-1 rounded bg-amber-500/20 text-amber-300 border border-amber-400/40';
+          fsStatusSub.textContent = 'Focused Fullscreen covers everything on Monitor A';
+
+          cardOrderBadge.textContent = 'Win11 Behavior';
+          cardOrderBadge.className = 'px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold';
+          cardOrderText.innerHTML = 'Bottom &#8594; Top: <strong>Chrome (2) &lt; Taskbar (3) &lt; Game (5)</strong>';
+        }
+      }
+    }
+
+    function tick(now) {
+      if (isPlaying && !isDragging) {
+        const s = SCENES[currentScene];
+        const elapsed = now - sceneStartTime;
+        const t = Math.min(1, elapsed / s.duration);
+        const moveT = Math.min(1, elapsed / (s.duration * 0.45));
+        const eased = moveT < 0.5 ? 2 * moveT * moveT : 1 - Math.pow(-2 * moveT + 2, 2) / 2;
+
+        normX = s.fromX + (s.toX - s.fromX) * eased;
+        mouseDownSim = s.mouseDown;
+        gameFocusedSim = s.gameFocused;
+
+        renderState();
+
+        if (t >= 1) {
+          currentScene = (currentScene + 1) % SCENES.length;
+          sceneStartTime = now;
+          applyBannerText();
+        }
+      }
+      requestAnimationFrame(tick);
+    }
+
+    sceneBtns.forEach((btn, idx) => {
+      btn.addEventListener('click', () => {
+        currentScene = idx;
+        sceneStartTime = performance.now();
+        const s = SCENES[idx];
+        normX = s.toX;
+        mouseDownSim = s.mouseDown;
+        gameFocusedSim = s.gameFocused;
+        applyBannerText();
+        renderState();
+      });
+    });
+
+    playBtn.addEventListener('click', () => {
+      isPlaying = !isPlaying;
+      sceneStartTime = performance.now();
+      playIcon.innerHTML = isPlaying ? '&#9646;&#9646;' : '&#9654;';
+      playLabel.textContent = isPlaying ? 'Pause Animation' : 'Play Animation';
+    });
+
+    modeIntended.addEventListener('click', () => {
+      mode = 'intended';
+      applyBannerText();
+      renderState();
+    });
+
+    modeBuggy.addEventListener('click', () => {
+      mode = 'buggy';
+      applyBannerText();
+      renderState();
+    });
+
+    modeWin11.addEventListener('click', () => {
+      mode = 'win11';
+      applyBannerText();
+      renderState();
+    });
+
+    fullscreenGame.addEventListener('click', () => {
+      isPlaying = false;
+      playIcon.innerHTML = '&#9654;';
+      playLabel.textContent = 'Play Animation';
+      currentScene = 4;
+      gameFocusedSim = true;
+      mouseDownSim = false;
+      applyBannerText();
+      renderState();
+    });
+
+    let dragOffsetX = 0;
+    chromeWindow.addEventListener('pointerdown', (e) => {
+      isDragging = true;
+      isPlaying = false;
+      mouseDownSim = true;
+      gameFocusedSim = false;
+      playIcon.innerHTML = '&#9654;';
+      playLabel.textContent = 'Play Animation';
+      const rect = chromeWindow.getBoundingClientRect();
+      dragOffsetX = e.clientX - rect.left;
+      chromeWindow.setPointerCapture(e.pointerId);
+      currentScene = 1;
+      applyBannerText();
+      renderState();
+    });
+
+    chromeWindow.addEventListener('pointermove', (e) => {
+      if (!isDragging) return;
+      const stageRect = stage.getBoundingClientRect();
+      const winW = chromeWindow.offsetWidth || 208;
+      const minLeft = 16;
+      const maxLeft = stageRect.width - winW - 16;
+      const newLeft = Math.max(minLeft, Math.min(maxLeft, e.clientX - stageRect.left - dragOffsetX));
+      normX = (newLeft - minLeft) / (maxLeft - minLeft);
+      renderState();
+    });
+
+    chromeWindow.addEventListener('pointerup', () => {
+      if (!isDragging) return;
+      isDragging = false;
+      mouseDownSim = false;
+      currentScene = normX >= 0.5 ? 3 : 2;
+      applyBannerText();
+      renderState();
+    });
+
+    window.addEventListener('resize', renderState);
+    applyBannerText();
+    renderState();
+    requestAnimationFrame(tick);
+  </script>
+</body>
+</html>
