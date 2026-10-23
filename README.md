@@ -72,7 +72,7 @@ qdbus6 org.kde.KWin /KWin reconfigure
 
 # Exhaustive Technical Deep-Dive: Why This Happens & How We Solved It
 
-Despite this being one of the most common multi-monitor complaints from users migrating from Windows to KDE Plasma, no existing KWin script solved it. Below is a complete technical breakdown of the specifications, community misconceptions, developer discussions, and binary disassembly of `/usr/lib/libkwin.so.6` (KWin 6.8) that led to this solution.
+Despite this being one of the most common multi-monitor complaints from users migrating from Windows to KDE Plasma, no existing KWin script solved it. Below is a complete technical breakdown of the specifications, community misconceptions, developer discussions, and KWin's C++ stacking engine (`src/window.cpp`, `src/activation.cpp`, `src/layershellv1window.cpp`, and `src/layers.cpp`) that led to this solution.
 
 ---
 
@@ -100,6 +100,7 @@ There is no native third state in KWin's state machine where a fullscreen window
 ## 2. Community Misunderstandings & Why Existing Workarounds Hit a Wall
 
 Across recurring threads on Reddit and KDE forums—such as:
+- [*"How can I make Plasma fullscreen windows not be always on top?"* (`discuss.kde.org`)](https://discuss.kde.org/t/how-can-i-make-plasma-fullscreen-windows-not-be-allways-on-top/28491)
 - [*"Is it possible to keep a window above a full screen window?"* (`r/kde`)](https://www.reddit.com/r/kde/comments/z0zptp/is_it_possible_to_keep_a_window_above_a_full/)
 - [*"Please how to keep window above fullscreen?"* (`r/kde`)](https://www.reddit.com/r/kde/comments/1rgi7l4/please_how_to_keep_window_above_fullscreen/)
 - [*"'Always on Top' windows ignored if an app is fullscreen"* (`r/kde`)](https://www.reddit.com/r/kde/comments/qq5ojw/always_on_top_windows_ignored_if_an_app_is/)
@@ -120,15 +121,15 @@ If you check KWin's Scripting API documentation, `KWin::Window::layer` is expose
 
 ---
 
-## 3. Reverse-Engineering `/usr/lib/libkwin.so.6` via Disassembly
+## 3. Inside KWin's C++ Stacking Engine (`invent.kde.org/plasma/kwin`)
 
-By disassembling `/usr/lib/libkwin.so.6` (KWin 6.8.1 on x86-64), we uncovered **five internal implementation details** in KWin's C++ stacking engine that explain both why cross-monitor dragging is broken in KWin and how a KWin Script can achieve exact Windows 11 stacking without needing write access to `window.layer`.
+Inspecting KWin's upstream C++ source code in [`plasma/kwin`](https://invent.kde.org/plasma/kwin) reveals **five key implementation details** that explain both why cross-monitor dragging is broken in KWin and how a KWin Script can achieve exact Windows 11 stacking without needing write access to `window.layer`.
 
 ---
 
-### Finding #1: KWin's Internal 10-Layer Enum & `KWin::Window::belongsToLayer()` (`0x5037a0`)
+### Finding #1: KWin's 10-Layer Enum & `Window::belongsToLayer()` ([`src/window.cpp`](https://invent.kde.org/plasma/kwin/-/blob/master/src/window.cpp))
 
-Extracting the symbol table and string table from `libkwin.so.6` shows KWin's internal `KWin::Layer` enum values:
+KWin defines 10 stacking layers in `KWin::Layer` ([`src/effect/globals.h`](https://invent.kde.org/plasma/kwin/-/blob/master/src/effect/globals.h)):
 
 | Enum Value | Name | Typical Contents |
 | :---: | :--- | :--- |
@@ -143,25 +144,10 @@ Extracting the symbol table and string table from `libkwin.so.6` shows KWin's in
 | `8` | `OnScreenDisplayLayer` | Volume/brightness OSD (`NET::OnScreenDisplay`) |
 | `9` | `OverlayLayer` | Lock screen overlays, Wayland layer-shell `OVERLAY` |
 
-In `KWin::Window::belongsToLayer() const` (`0x5037a0`), after checking special window types (unmanaged windows, lock screen, desktop, dock, notifications, OSD), normal windows reach `0x503981`:
-
-```objdump
-  503981: 80 bb 5c 01 00 00 00  cmpb   $0x0,0x15c(%rbx)      # if (this->keepBelow())
-  503988: b8 01 00 00 00        mov    $0x1,%eax             #     return BelowLayer (1);
-  50398d: 75 46                 jne    5039d5
-  50398f: 48 89 df              mov    %rbx,%rdi
-  503992: ff 15 88 f0 53 00     call   *0x53f088(%rip)       # KWin::Window::isActiveFullScreen() const
-  503998: 84 c0                 test   %al,%al               # if (this->isActiveFullScreen())
-  50399a: b8 05 00 00 00        mov    $0x5,%eax             #     return ActiveLayer (5);
-  50399f: 75 34                 jne    5039d5
-  5039a1: 0f b6 83 5b 01 00 00  movzbl 0x15b(%rbx),%eax      # eax = (uint8_t)this->keepAbove() (0 or 1)
-  5039a8: 83 c0 02              add    $0x2,%eax             # return keepAbove ? AboveLayer (3) : NormalLayer (2)
-  5039ab: eb 28                 jmp    5039d5
-```
-
-Look closely at those instructions (`0x503981`–`0x5039ab`). They translate to this exact C++ priority order:
+In [`Window::belongsToLayer() const`](https://invent.kde.org/plasma/kwin/-/blob/master/src/window.cpp#L544-593), after handling special window types (unmanaged windows, lock screen overlays, desktop, docks, notifications, and OSDs), standard application windows reach the final priority checks:
 
 ```cpp
+// src/window.cpp — Window::belongsToLayer()
 if (keepBelow()) {
     return BelowLayer;          // 1
 }
@@ -169,186 +155,183 @@ if (isActiveFullScreen()) {
     return ActiveLayer;         // 5
 }
 if (keepAbove()) {
-    return AboveLayer;          // 3 (0x15b(%rbx) == 1 -> 1 + 2 = 3)
+    return AboveLayer;          // 3
 }
-return NormalLayer;             // 2 (0x15b(%rbx) == 0 -> 0 + 2 = 2)
+return NormalLayer;             // 2
 ```
 
-Notice two critical facts here:
-1. If `isActiveFullScreen()` returns `false`, KWin immediately checks `keepAbove()` (`0x15b(%rbx)`).
-2. If `keepAbove()` is `true` while `isActiveFullScreen()` is `false`, **a fullscreen window is placed into `AboveLayer` (`3`) instead of `NormalLayer` (`2`)**!
+Notice two critical facts in `Window::belongsToLayer()`:
+1. If `isActiveFullScreen()` returns `false`, KWin immediately checks `keepAbove()`.
+2. If `keepAbove()` is `true` while `isActiveFullScreen()` is `false`, **a fullscreen window is placed into `AboveLayer` (`3`) instead of dropping to `NormalLayer` (`2`)**!
 
 ---
 
-### Finding #2: How `KWin::Window::isActiveFullScreen()` (`0x503660`) and `KWin::Window::isOnOutput()` (`0x4f7060`) Work
+### Finding #2: How `Window::isActiveFullScreen()` and `Window::isOnOutput()` Work ([`src/window.cpp`](https://invent.kde.org/plasma/kwin/-/blob/master/src/window.cpp))
 
-Disassembling `KWin::Window::isActiveFullScreen() const` (`0x503660`) reveals the exact condition KWin uses to decide whether a fullscreen window belongs in `ActiveLayer` (`5`):
-
-```objdump
-0000000000503660 <KWin::Window::isActiveFullScreen() const@@Base>:
-  ...
-  5036ac: 48 89 df              mov    %rbx,%rdi
-  5036af: ff d0                 call   *%rax                 # this->isFullScreen()
-  5036b1: 84 c0                 test   %al,%al
-  5036b3: 74 55                 je     50370a                # if (!isFullScreen()) return false;
-  5036b5: 48 8b 05 44 b9 53 00  mov    0x53b944(%rip),%rax   # KWin::Workspace::_self
-  5036bc: 48 8b 00              mov    (%rax),%rax
-  5036bf: 48 8b 50 70           mov    0x70(%rax),%rdx       # rdx = workspace()->mostRecentlyActivatedWindow() (ac)
-  5036c3: 48 85 d2              test   %rdx,%rdx
-  5036c6: 74 40                 je     503708                # if (!ac) return false;
-  5036c8: 48 39 d3              cmp    %rdx,%rbx
-  5036cb: 74 20                 je     5036ed                # if (ac == this) return true;
-  5036cd: 48 89 df              mov    %rbx,%rdi
-  5036d0: 48 89 54 24 08        mov    %rdx,0x8(%rsp)
-  5036d5: ff 15 85 dd 53 00     call   *0x53dd85(%rip)       # this->output()
-  5036db: 48 8b 7c 24 08        mov    0x8(%rsp),%rdi        # rdi = ac
-  5036e0: 48 89 c6              mov    %rax,%rsi             # rsi = this->output()
-  5036e3: ff 15 37 f0 53 00     call   *0x53f037(%rip)       # ac->isOnOutput(this->output())
-  5036e9: 84 c0                 test   %al,%al
-  5036eb: 75 33                 jne    503720                # if (ac->isOnOutput(this->output())) check allMainWindows()
-  5036ed: b8 01 00 00 00        mov    $0x1,%eax             # else return true;
-```
-
-In C++, `KWin::Window::isActiveFullScreen()` is:
+In [`Window::isActiveFullScreen() const`](https://invent.kde.org/plasma/kwin/-/blob/master/src/window.cpp#L2377-2388), KWin decides whether a fullscreen window belongs in `ActiveLayer` (`5`):
 
 ```cpp
-bool Window::isActiveFullScreen() const {
+// src/window.cpp — Window::isActiveFullScreen()
+bool Window::isActiveFullScreen() const
+{
     if (!isFullScreen()) {
         return false;
     }
-    const Window *ac = workspace()->mostRecentlyActivatedWindow();
-    if (!ac) {
-        return false;
-    }
-    if (ac == this) {
-        return true;
-    }
-    if (!ac->isOnOutput(output())) {
-        return true;
-    }
-    return ac->allMainWindows().contains(this);
+
+    const auto ac = workspace()->activeWindow();
+    // according to NETWM spec implementation notes suggests that focused
+    // fullscreen windows should be in the Activelayer, however sticky
+    // fullscreen windows should also be above the panel if no other
+    // window is focused on the same screen
+    return ac && (ac == this || !ac->isOnOutput(output()) || ac->allMainWindows().contains(const_cast<Window *>(this)));
 }
 ```
 
-And what does `ac->isOnOutput(this->output())` (`0x4f7060`) check? Does it check whether `ac`'s primary assigned monitor (`ac->output()`) equals `this->output()`? **No!** Disassembling `KWin::Window::isOnOutput(KWin::LogicalOutput*) const` (`0x4f7060`) shows that it rounds the window's `frameGeometry` (`0x18(%rbx)`..`0x30(%rbx)`) and performs a **2D rectangle intersection test** against `output->geometry()`:
+And what does `ac->isOnOutput(output())` check? Does it check whether `ac`'s primary assigned monitor (`ac->output()`) equals `this->output()`? **No!** Looking at [`Window::isOnOutput(LogicalOutput *output) const`](https://invent.kde.org/plasma/kwin/-/blob/master/src/window.cpp#L238-241):
 
-```objdump
-00000000004f7060 <KWin::Window::isOnOutput(KWin::LogicalOutput*) const@@Base>:
-  ...
-  4f7078: ff 15 7a fa 53 00     call   *0x53fa7a(%rip)       # KWin::LogicalOutput::geometry() const
-  4f707e: c5 fb 10 43 30        vmovsd 0x30(%rbx),%xmm0      # frameGeometry.height
-  ...
-  4f70ee: 45 39 fc              cmp    %r15d,%r12d           # rect intersection check:
-  4f70f1: 0f 9c c2              setl   %dl                   # output.left < window.right &&
-  4f70f4: 39 fd                 cmp    %edi,%ebp             # window.left < output.right &&
-  4f70f6: 40 0f 9f c7           setg   %dil                  # output.top  < window.bottom &&
-  4f70fa: 21 fa                 and    %edi,%edx             # window.top  < output.bottom
+```cpp
+// src/window.cpp — Window::isOnOutput()
+bool Window::isOnOutput(LogicalOutput *output) const
+{
+    return output->geometry().intersects(frameGeometry().toRect());
+}
 ```
+
+It performs a **2D rectangle intersection test** between the active window's `frameGeometry` and the fullscreen monitor's `output->geometry()`.
 
 This means that **as soon as a single pixel of the window you are dragging (`ac`) crosses the border onto the fullscreen window's monitor (`this->output()`), `ac->isOnOutput(this->output())` is ALREADY `true`, and `isActiveFullScreen()` ALREADY evaluates to `false`!**
 
 ---
 
-### Finding #3: The Cross-Monitor Drag Bug — Why `m_layer` (`0x1fc`) Stays Stuck at `ActiveLayer` (`5`)
+### Finding #3: The Cross-Monitor Drag Bug — Why `m_layer` Stays Stuck at `ActiveLayer` (`5`)
 
 If `isActiveFullScreen()` already returns `false` the moment your dragged window touches the fullscreen monitor, **why does KWin keep the fullscreen window on top of your dragged window?**
 
-Disassembling `KWin::Window::layer() const` (`0x4fc940`) and `KWin::Window::updateLayer()` (`0x4fca00`) reveals the culprit:
+Looking at [`Window::layer() const`](https://invent.kde.org/plasma/kwin/-/blob/master/src/window.cpp#L524-530) and [`Window::updateLayer()`](https://invent.kde.org/plasma/kwin/-/blob/master/src/window.cpp#L532-542) reveals the culprit:
 
-```objdump
-00000000004fc940 <KWin::Window::layer() const@@Base>:
-  4fc940: f3 0f 1e fa           endbr64
-  4fc944: 8b 87 fc 01 00 00     mov    0x1fc(%rdi),%eax      # eax = this->m_layer
-  4fc94a: 83 f8 ff              cmp    $0xffffffff,%eax      # if (m_layer != UnknownLayer (-1))
-  4fc94d: 74 01                 je     4fc950
-  4fc94f: c3                    ret                          #     return cached m_layer immediately!
+```cpp
+// src/window.cpp — Window::layer() & Window::updateLayer()
+Layer Window::layer() const
+{
+    if (m_layer == UnknownLayer) {
+        const_cast<Window *>(this)->m_layer = rules()->checkLayer(belongsToLayer());
+    }
+    return m_layer;
+}
+
+void Window::updateLayer()
+{
+    if (isDeleted()) {
+        return;
+    }
+    if (m_layer == rules()->checkLayer(belongsToLayer())) {
+        return;
+    }
+    StackingUpdatesBlocker blocker(workspace());
+    m_layer = UnknownLayer; // invalidate, will be updated when doing stacking order
+}
 ```
 
-`KWin::Window::layer()` **caches** the computed layer in member variable `m_layer` at offset `0x1fc(%rdi)`. It **never calls `belongsToLayer()`** unless `m_layer` is invalidated to `0xffffffff` (`UnknownLayer`) inside `KWin::Window::updateLayer()` (`0x4fca00`):
+`Window::layer()` **caches** the computed layer in `m_layer`. It **never re-evaluates `belongsToLayer()`** unless `m_layer` is invalidated via `Window::updateLayer()`.
 
-```objdump
-00000000004fca00 <KWin::Window::updateLayer()@@Base>:
-  ...
-  4fcab4: c7 83 fc 01 00 00 ff  movl   $0xffffffff,0x1fc(%rbx) # m_layer = UnknownLayer (-1)
-  4fcabb: ff ff ff
-  ...
-  4fcac7: ff 25 9b 01 54 00     jmp    *0x54019b(%rip)         # Workspace::blockStackingUpdates(false) -> recomputes stacking
-```
+Now trace what happens when you click a window on Monitor B and drag it onto Monitor A (where a fullscreen app is running):
 
-Now look at where `KWin::Window::updateLayer()` is called when you click a window on Monitor B and drag it onto Monitor A:
-1. When you click the window on Monitor B, `KWin::Workspace::setActiveWindow(KWin::Window*)` runs (`0x1a43c6`):
-   ```objdump
-     1a43c6: ff 15 94 d0 89 00     call   *0x89d094(%rip)       # fullscreenWin->output()
-     1a43cc: 48 8b 7b 70           mov    0x70(%rbx),%rdi       # mostRecentlyActivatedWindow()
-     1a43d0: 49 89 c6              mov    %rax,%r14
-     1a43d3: ff 15 87 d0 89 00     call   *0x89d087(%rip)       # activeWin->output()
-     1a43de: 49 39 c6              cmp    %rax,%r14             # if (fullscreenWin->output() == activeWin->output())
-     1a43e1: 74 07                 je     1a43ea
-     1a43e3: ...                   jmp    1a4384                # skip!
-     1a43ea: 4c 89 e7              mov    %r12,%rdi
-     1a43ed: ff 15 cd 55 89 00     call   *0x8955cd(%rip)       # fullscreenWin->updateLayer()
+1. **Clicking the window on Monitor B:** [`Workspace::setActiveWindow(Window *window)`](https://invent.kde.org/plasma/kwin/-/blob/master/src/activation.cpp#L258-271) in `src/activation.cpp` runs:
+   ```cpp
+   // src/activation.cpp — Workspace::setActiveWindow()
+   // activating a client can cause a non active fullscreen window to loose the ActiveLayer status on > 1 screens
+   if (outputs().count() > 1) {
+       for (auto it = m_windows.begin(); it != m_windows.end(); ++it) {
+           if (*it != m_activeWindow && (*it)->layer() == ActiveLayer && (*it)->output() == m_activeWindow->output()) {
+               (*it)->updateLayer();
+           }
+       }
+   }
    ```
-   At the moment you click the window on Monitor B, `activeWin->output()` is **Monitor B**, while `fullscreenWin->output()` is **Monitor A**. Because `Monitor A != Monitor B`, `setActiveWindow()` skips calling `fullscreenWin->updateLayer()`, and `fullscreenWin->m_layer` stays cached as `ActiveLayer` (`5`).
-2. Next, you **drag** that already-active window from Monitor B onto Monitor A.
-   - Because the dragged window is *already* the active window, `setActiveWindow()` is **not** called again.
-   - Disassembling `KWin::Window::setOutput()` (`0x4f2910`) and `KWin::Window::setMoveResizeOutput()` (`0x50b760`) shows that **neither function calls `updateLayer()` on fullscreen windows on the target monitor** (whereas `KWin::Window::sendToOutput()` at `0x50e4f8`, used only by keyboard shortcuts, *does* loop through fullscreen windows and call `updateLayer()`!).
-   - Consequently, `fullscreenWin->m_layer` (`0x1fc`) remains **permanently stale at `ActiveLayer` (`5`)** throughout the drag, hiding your dragged window underneath the fullscreen app!
+   At the moment you click the window on Monitor B, `m_activeWindow->output()` is **Monitor B**, while the fullscreen window's `(*it)->output()` is **Monitor A**. Because `Monitor A != Monitor B`, `setActiveWindow()` skips calling `updateLayer()` on the fullscreen window, so its `m_layer` remains cached as `ActiveLayer` (`5`).
+
+2. **Dragging the already-active window from Monitor B onto Monitor A:**
+   - Because the dragged window is *already* `m_activeWindow`, `Workspace::setActiveWindow()` is **not** called again.
+   - During the drag, [`Window::updateInteractiveMoveResize()`](https://invent.kde.org/plasma/kwin/-/blob/master/src/window.cpp#L1141-1272), [`Window::setMoveResizeOutput()`](https://invent.kde.org/plasma/kwin/-/blob/master/src/window.cpp#L3461-3483), and [`Window::setOutput()`](https://invent.kde.org/plasma/kwin/-/blob/master/src/window.cpp#L224-231) update the dragged window's geometry and output—but **none of them call `updateLayer()` on fullscreen windows on the destination monitor**.
+   - Only [`Window::sendToOutput()`](https://invent.kde.org/plasma/kwin/-/blob/master/src/window.cpp#L3971-3983) contains the loop to refresh fullscreen layers on the target monitor:
+     ```cpp
+     // src/window.cpp — Window::sendToOutput()
+     if (isActive()) {
+         workspace()->setActiveOutput(newOutput);
+         // might impact the layer of a fullscreen window
+         const auto windows = workspace()->windows();
+         for (Window *other : windows) {
+             if (other->isFullScreen() && other->output() == newOutput) {
+                 other->updateLayer();
+             }
+         }
+     }
+     ```
+     However, `sendToOutput()` is only called by "Move Window to Screen" shortcuts or inside [`Window::finishInteractiveMoveResize()`](https://invent.kde.org/plasma/kwin/-/blob/master/src/window.cpp#L1086-1088) **after** you release the mouse button—and even then, `sendToOutput()` early-returns at line 3984 if `moveResizeOutput() == newOutput` or only demotes the fullscreen window to `NormalLayer` (`2`) after the drag ends.
+   - Consequently, throughout the interactive drag, the fullscreen window's cached `m_layer` remains **stale at `ActiveLayer` (`5`)**, hiding the dragged window underneath the fullscreen app!
 
 ---
 
-### Finding #4: The `.rodata` Wayland Layer-Shell Table (`0x8d92e0`) & Shared `AboveLayer` (`3`)
+### Finding #4: Wayland Layer-Shell Panels (`LayerShellV1Window`) & Shared `AboveLayer` (`3`)
 
-Even if we force `fullscreenWin->updateLayer()` to run when a dragged window enters Monitor A, KWin's default `belongsToLayer()` would drop the unfocused fullscreen window from `ActiveLayer` (`5`) down to `NormalLayer` (`2`), causing the Plasma Taskbar to pop up over the fullscreen app.
+Even if `fullscreenWin->updateLayer()` is triggered when a dragged window enters Monitor A, KWin's default `belongsToLayer()` drops the unfocused fullscreen window from `ActiveLayer` (`5`) all the way down to `NormalLayer` (`2`), causing the Plasma Taskbar to pop up over the fullscreen app.
 
 Why doesn't the Plasma Taskbar cover windows in `AboveLayer` (`3`)?
 
-In `KWin::Window::layer() const` (`0x4fc9d0`) and `KWin::Window::updateLayer()` (`0x4fcaf0`), Wayland layer-shell surfaces (`KWin::LayerSurfaceV1Interface`, used by the Plasma Panel / Taskbar) determine their KWin layer via a 4-integer lookup table in `.rodata` at address `0x8d92e0`:
+In [`LayerShellV1Window::belongsToLayer() const`](https://invent.kde.org/plasma/kwin/-/blob/master/src/layershellv1window.cpp#L224-238) (used by Wayland `zwlr_layer_shell_v1` surfaces like the Plasma Panel / Taskbar) and [`Window::belongsToLayer() const`](https://invent.kde.org/plasma/kwin/-/blob/master/src/window.cpp#L567-569) (used by X11/Wayland docks):
 
-```objdump
-  4fcaf0: 48 8b bb 70 05 00 00  mov    0x570(%rbx),%rdi
-  4fcaf7: ff 15 d3 17 54 00     call   *0x5417d3(%rip)       # LayerSurfaceV1Interface::layer() const
-  4fcafd: 48 8d 15 dc c7 3d 00  lea    0x3dc7dc(%rip),%rdx   # lookup table at 0x8d92e0
-  4fcb04: 89 c0                 mov    %eax,%eax
-  4fcb06: 8b 04 82              mov    (%rdx,%rax,4),%eax    # KWin::Layer = table[layerSurface->layer()]
+```cpp
+// src/layershellv1window.cpp — LayerShellV1Window::belongsToLayer()
+Layer LayerShellV1Window::belongsToLayer() const
+{
+    switch (m_shellSurface->layer()) {
+    case LayerSurfaceV1Interface::BackgroundLayer:
+        return DesktopLayer;        // 0
+    case LayerSurfaceV1Interface::BottomLayer:
+        return BelowLayer;          // 1
+    case LayerSurfaceV1Interface::TopLayer:
+        return AboveLayer;          // 3  <-- Plasma Panel / Taskbar
+    case LayerSurfaceV1Interface::OverlayLayer:
+        return OverlayLayer;        // 9
+    default:
+        Q_UNREACHABLE();
+    }
+}
 ```
-
-Dumping `.rodata` at `0x8d92e0` from `/usr/lib/libkwin.so.6`:
-
-```text
-Contents of section .rodata:
- 8d92e0 00000000 01000000 03000000 09000000
-```
-
-| `zwlr_layer_shell_v1` Layer | `.rodata` Value at `0x8d92e0` | Mapped `KWin::Layer` |
-| :---: | :---: | :--- |
-| `0` (`BACKGROUND`) | `0x00000000` (`0`) | `DesktopLayer` (`0`) |
-| `1` (`BOTTOM`) | `0x00000001` (`1`) | `BelowLayer` (`1`) |
-| `2` (`TOP` — **Plasma Panel / Taskbar**) | `0x00000003` (`3`) | **`AboveLayer` (`3`)** |
-| `3` (`OVERLAY`) | `0x00000009` (`9`) | `OverlayLayer` (`9`) |
-
-And in `KWin::Window::belongsToLayer()` (`0x5038ed`), X11/Wayland `NET::Dock` (`0x2`) windows also jump to `0x503ab0`, which returns `0x3` (`AboveLayer`).
 
 **Crucial insight:**
-- The Plasma Taskbar lives in **`AboveLayer` (`3`)**.
+- The Plasma Taskbar (`LayerSurfaceV1Interface::TopLayer` / `NET::Dock`) lives in **`AboveLayer` (`3`)**.
 - Normal windows with `keepAbove = true` **also** live in **`AboveLayer` (`3`)**.
 - An unfocused fullscreen window (`isActiveFullScreen() == false`) with `keepAbove = true` **also** lives in **`AboveLayer` (`3`)**!
 
-Within `AboveLayer` (`3`), `KWin::Workspace::constrainedStackingOrder()` (`0x349f50`) preserves the relative order of windows from `unconstrained_stacking_order`, which is controlled by `Workspace::raiseWindow()`.
+Within the same layer (`AboveLayer`), [`Workspace::constrainedStackingOrder()`](https://invent.kde.org/plasma/kwin/-/blob/master/src/layers.cpp#L156-292) in `src/layers.cpp` preserves the relative order of windows from `unconstrained_stacking_order`, which is controlled by `Workspace::raiseWindow()`.
 
 ---
 
-### Finding #5: How the Script Combines `setKeepAbove()` (`0x4fd19d`) + `raiseWindow()`
+### Finding #5: How the Script Combines `setKeepAbove()` + `raiseWindow()`
 
-Disassembling `KWin::Window::setKeepAbove(bool)` (`0x4fd19d`) shows:
+Looking at [`Window::setKeepAbove(bool b)`](https://invent.kde.org/plasma/kwin/-/blob/master/src/window.cpp#L600-615) in `src/window.cpp`:
 
-```objdump
-  4fd1a7: 40 88 b3 5b 01 00 00  mov    %sil,0x15b(%rbx)      # this->m_keepAbove = b
-  ...
-  4fd1ca: 48 89 df              mov    %rbx,%rdi
-  4fd1cd: ff 15 ed c7 53 00     call   *0x53c7ed(%rip)       # KWin::Window::updateLayer()
+```cpp
+// src/window.cpp — Window::setKeepAbove()
+void Window::setKeepAbove(bool b)
+{
+    b = rules()->checkKeepAbove(b);
+    if (b && !rules()->checkKeepBelow(false)) {
+        setKeepBelow(false);
+    }
+    if (b == keepAbove()) {
+        return;
+    }
+    m_keepAbove = b;
+    doSetKeepAbove();
+    updateLayer();
+    updateWindowRules(Rules::KeepAbove);
+    Q_EMIT keepAboveChanged(m_keepAbove);
+}
 ```
 
-Whenever `window.keepAbove` is mutated from a KWin Script, C++ immediately invokes `KWin::Window::updateLayer()`, which resets `m_layer` (`0x1fc`) to `0xffffffff` (`UnknownLayer`) and recalculates the stacking order!
+Whenever `window.keepAbove` is mutated from a KWin Script, C++ immediately invokes `Window::updateLayer()`, which invalidates `m_layer = UnknownLayer` and triggers `Workspace::updateStackingOrder()` when the `StackingUpdatesBlocker` goes out of scope!
 
 By combining all five findings, [`contents/code/main.js`](contents/code/main.js) implements a clean state machine:
 
@@ -357,7 +340,7 @@ By combining all five findings, [`contents/code/main.js`](contents/code/main.js)
 2. **When a Normal Window Overlaps an Unfocused Fullscreen Window's Monitor:**
    The instant `rectsIntersect(activeWindow.frameGeometry, fullscreenWindow.output.geometry)` becomes `true`:
    - In KWin C++, `activeWindow->isOnOutput(fullscreenWindow->output())` is now `true`, so `fullscreenWindow->isActiveFullScreen()` will return `false` as soon as `updateLayer()` is triggered.
-   - The script sets `fullscreenWindow.keepAbove = true` (toggling `false -> true` if already set so `setKeepAbove()` isn't short-circuited), forcing C++ `Window::updateLayer()` to run and moving `fullscreenWindow` from `ActiveLayer` (`5`) into `AboveLayer` (`3`).
+   - The script sets `fullscreenWindow.keepAbove = true` (toggling `false -> true` if already set so `setKeepAbove()` isn't short-circuited by `if (b == keepAbove()) return;`), forcing C++ `Window::updateLayer()` to run and moving `fullscreenWindow` from `ActiveLayer` (`5`) into `AboveLayer` (`3`).
    - The script sets `activeWindow.keepAbove = true`, placing `activeWindow` into `AboveLayer` (`3`) as well.
    - The script calls:
      ```javascript
